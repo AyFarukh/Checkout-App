@@ -35,37 +35,43 @@ const VARIANT_QUERY = `
   }
 `;
 
-const PRODUCT_METAFIELD_UPSELL_QUERY = `
-  query ProductMetafieldUpsells(
+// Resolve dynamic upsells directly from the variants that are currently in
+// checkout. This is more reliable than depending on line.merchandise.product
+// being present in the Checkout API payload.
+const CART_VARIANT_METAFIELD_QUERY = `
+  query CartVariantMetafieldUpsells(
     $ids: [ID!]!
     $namespace: String!
     $key: String!
   ) {
     nodes(ids: $ids) {
-      ... on Product {
+      ... on ProductVariant {
         id
-        metafield(namespace: $namespace, key: $key) {
-          type
-          value
-          reference {
-            ... on ProductVariant {
-              id
-              title
-              availableForSale
-              price {
-                amount
-                currencyCode
-              }
-              image {
-                url
-                altText
-              }
-              product {
+        product {
+          id
+          metafield(namespace: $namespace, key: $key) {
+            type
+            value
+            reference {
+              ... on ProductVariant {
                 id
                 title
-                featuredImage {
+                availableForSale
+                price {
+                  amount
+                  currencyCode
+                }
+                image {
                   url
                   altText
+                }
+                product {
+                  id
+                  title
+                  featuredImage {
+                    url
+                    altText
+                  }
                 }
               }
             }
@@ -124,8 +130,8 @@ function Extension() {
     settings.rule_3_offer,
   ]);
 
-  const metafieldNamespace = (settings.metafield_namespace || 'custom').trim();
-  const metafieldKey = (settings.metafield_key || 'checkout_upsell_variant').trim();
+  const metafieldNamespace = String(settings.metafield_namespace || 'custom').trim();
+  const metafieldKey = String(settings.metafield_key || 'checkout_upsell_variant').trim();
   const metafieldUpsellsEnabled = settings.enable_metafield_upsells !== false;
 
   useEffect(() => {
@@ -177,11 +183,11 @@ function Extension() {
     let cancelled = false;
 
     async function loadMetafieldUpsells() {
-      const productIds = [...cartProductIds];
+      const checkoutVariantIds = [...cartVariantIds];
 
       if (
         !metafieldUpsellsEnabled ||
-        !productIds.length ||
+        !checkoutVariantIds.length ||
         !metafieldNamespace ||
         !metafieldKey
       ) {
@@ -193,9 +199,9 @@ function Extension() {
       setError('');
 
       try {
-        const {data, errors} = await shopify.query(PRODUCT_METAFIELD_UPSELL_QUERY, {
+        const {data, errors} = await shopify.query(CART_VARIANT_METAFIELD_QUERY, {
           variables: {
-            ids: productIds,
+            ids: checkoutVariantIds,
             namespace: metafieldNamespace,
             key: metafieldKey,
           },
@@ -208,13 +214,30 @@ function Extension() {
 
         const nextVariants = [];
 
-        for (const product of data?.nodes || []) {
-          const reference = product?.metafield?.reference;
+        for (const cartVariant of data?.nodes || []) {
+          const metafield = cartVariant?.product?.metafield;
+          const reference = metafield?.reference;
 
-          // Recommended metafield type: Product variant reference.
-          // Shopify then returns the complete referenced ProductVariant here.
+          // Preferred setup: product metafield type = variant_reference.
           if (reference?.id && reference.availableForSale !== false) {
             nextVariants.push(reference);
+            continue;
+          }
+
+          // Fallback for stores where the metafield reference is not expanded
+          // but Shopify still returns a ProductVariant GID in `value`.
+          if (
+            typeof metafield?.value === 'string' &&
+            metafield.value.startsWith('gid://shopify/ProductVariant/')
+          ) {
+            try {
+              const fallback = await loadOneVariant(metafield.value);
+              if (fallback?.id && fallback.availableForSale !== false) {
+                nextVariants.push(fallback);
+              }
+            } catch {
+              // Ignore this product and keep processing the remaining cart lines.
+            }
           }
         }
 
@@ -240,13 +263,26 @@ function Extension() {
       }
     }
 
+    async function loadOneVariant(id) {
+      const {data, errors} = await shopify.query(VARIANT_QUERY, {
+        variables: {ids: [id]},
+        version: '2026-07',
+      });
+
+      if (errors?.length) {
+        throw new Error(errors.map((item) => item.message).join(', '));
+      }
+
+      return data?.nodes?.[0] || null;
+    }
+
     loadMetafieldUpsells();
 
     return () => {
       cancelled = true;
     };
   }, [
-    [...cartProductIds].join('|'),
+    [...cartVariantIds].join('|'),
     metafieldUpsellsEnabled,
     metafieldNamespace,
     metafieldKey,
@@ -269,19 +305,14 @@ function Extension() {
       addVariantOffer(variant, source);
     };
 
-    // Product metafield offers are dynamic: every product currently in the cart
-    // can point to its own ProductVariant using custom.checkout_upsell_variant
-    // (or another namespace/key configured by the merchant).
     for (const variant of metafieldVariants) {
       addVariantOffer(variant, 'metafield');
     }
 
-    // Fixed offers remain available as a global fallback / always-on offer.
     addOffer(settings.fixed_product, 'fixed');
     addOffer(settings.fixed_product_2, 'fixed');
     addOffer(settings.fixed_product_3, 'fixed');
 
-    // Manual product-based rules remain available for exceptions.
     const rules = [
       [settings.rule_1_trigger, settings.rule_1_offer],
       [settings.rule_2_trigger, settings.rule_2_offer],
@@ -345,7 +376,7 @@ function Extension() {
 
   const hasAnyConfiguration =
     configuredIds.length > 0 ||
-    (metafieldUpsellsEnabled && cartProductIds.size > 0);
+    (metafieldUpsellsEnabled && cartVariantIds.size > 0);
 
   if (!hasAnyConfiguration) return null;
   if ((loading || metafieldLoading) && !offers.length && !error) return null;
