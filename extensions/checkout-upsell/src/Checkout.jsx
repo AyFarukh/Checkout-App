@@ -35,11 +35,54 @@ const VARIANT_QUERY = `
   }
 `;
 
+const PRODUCT_METAFIELD_UPSELL_QUERY = `
+  query ProductMetafieldUpsells(
+    $ids: [ID!]!
+    $namespace: String!
+    $key: String!
+  ) {
+    nodes(ids: $ids) {
+      ... on Product {
+        id
+        metafield(namespace: $namespace, key: $key) {
+          type
+          value
+          reference {
+            ... on ProductVariant {
+              id
+              title
+              availableForSale
+              price {
+                amount
+                currencyCode
+              }
+              image {
+                url
+                altText
+              }
+              product {
+                id
+                title
+                featuredImage {
+                  url
+                  altText
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 function Extension() {
   const [addingId, setAddingId] = useState(null);
   const [error, setError] = useState('');
   const [variantMap, setVariantMap] = useState(new Map());
+  const [metafieldVariants, setMetafieldVariants] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [metafieldLoading, setMetafieldLoading] = useState(false);
 
   const lines = shopify.lines.value || [];
   const settings = shopify.settings.value || {};
@@ -81,6 +124,10 @@ function Extension() {
     settings.rule_3_offer,
   ]);
 
+  const metafieldNamespace = (settings.metafield_namespace || 'custom').trim();
+  const metafieldKey = (settings.metafield_key || 'checkout_upsell_variant').trim();
+  const metafieldUpsellsEnabled = settings.enable_metafield_upsells !== false;
+
   useEffect(() => {
     let cancelled = false;
 
@@ -112,7 +159,7 @@ function Extension() {
       } catch (err) {
         if (!cancelled) {
           setVariantMap(new Map());
-          setError(err?.message || 'Unable to load upsell products.');
+          setError(err?.message || 'Unable to load configured upsell products.');
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -126,24 +173,115 @@ function Extension() {
     };
   }, [configuredIds.join('|')]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadMetafieldUpsells() {
+      const productIds = [...cartProductIds];
+
+      if (
+        !metafieldUpsellsEnabled ||
+        !productIds.length ||
+        !metafieldNamespace ||
+        !metafieldKey
+      ) {
+        setMetafieldVariants([]);
+        return;
+      }
+
+      setMetafieldLoading(true);
+      setError('');
+
+      try {
+        const {data, errors} = await shopify.query(PRODUCT_METAFIELD_UPSELL_QUERY, {
+          variables: {
+            ids: productIds,
+            namespace: metafieldNamespace,
+            key: metafieldKey,
+          },
+          version: '2026-07',
+        });
+
+        if (errors?.length) {
+          throw new Error(errors.map((item) => item.message).join(', '));
+        }
+
+        const nextVariants = [];
+
+        for (const product of data?.nodes || []) {
+          const reference = product?.metafield?.reference;
+
+          // Recommended metafield type: Product variant reference.
+          // Shopify then returns the complete referenced ProductVariant here.
+          if (reference?.id && reference.availableForSale !== false) {
+            nextVariants.push(reference);
+          }
+        }
+
+        if (!cancelled) {
+          const deduped = [];
+          const seen = new Set();
+
+          for (const variant of nextVariants) {
+            if (!variant?.id || seen.has(variant.id)) continue;
+            seen.add(variant.id);
+            deduped.push(variant);
+          }
+
+          setMetafieldVariants(deduped);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setMetafieldVariants([]);
+          setError(err?.message || 'Unable to load product metafield upsells.');
+        }
+      } finally {
+        if (!cancelled) setMetafieldLoading(false);
+      }
+    }
+
+    loadMetafieldUpsells();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    [...cartProductIds].join('|'),
+    metafieldUpsellsEnabled,
+    metafieldNamespace,
+    metafieldKey,
+  ]);
+
   const offers = useMemo(() => {
     const result = [];
 
-    const addOffer = (variantId, source) => {
-      if (!variantId || cartVariantIds.has(variantId)) return;
-
-      const variant = variantMap.get(variantId);
-      if (!variant || variant.availableForSale === false) return;
-      if (result.some((item) => item.variantId === variantId)) return;
-
+    const addVariantOffer = (variant, source) => {
+      if (!variant?.id || cartVariantIds.has(variant.id)) return;
+      if (variant.availableForSale === false) return;
+      if (result.some((item) => item.variantId === variant.id)) return;
       result.push(normalizeVariant(variant, source));
     };
 
-    // Fixed offers are always eligible unless the exact variant is already in checkout.
+    const addOffer = (variantId, source) => {
+      if (!variantId || cartVariantIds.has(variantId)) return;
+      const variant = variantMap.get(variantId);
+      if (!variant) return;
+      addVariantOffer(variant, source);
+    };
+
+    // Product metafield offers are dynamic: every product currently in the cart
+    // can point to its own ProductVariant using custom.checkout_upsell_variant
+    // (or another namespace/key configured by the merchant).
+    for (const variant of metafieldVariants) {
+      addVariantOffer(variant, 'metafield');
+    }
+
+    // Fixed offers remain available as a global fallback / always-on offer.
     addOffer(settings.fixed_product, 'fixed');
     addOffer(settings.fixed_product_2, 'fixed');
     addOffer(settings.fixed_product_3, 'fixed');
 
+    // Manual product-based rules remain available for exceptions.
     const rules = [
       [settings.rule_1_trigger, settings.rule_1_offer],
       [settings.rule_2_trigger, settings.rule_2_offer],
@@ -156,8 +294,6 @@ function Extension() {
       const triggerVariant = variantMap.get(triggerId);
       const triggerProductId = triggerVariant?.product?.id;
 
-      // Match either the exact configured variant or any variant belonging to
-      // the same product. This makes the rule behave like a product-based rule.
       const matchesCart =
         cartVariantIds.has(triggerId) ||
         (triggerProductId ? cartProductIds.has(triggerProductId) : false);
@@ -168,6 +304,7 @@ function Extension() {
     return result;
   }, [
     variantMap,
+    metafieldVariants,
     cartVariantIds,
     cartProductIds,
     settings.fixed_product,
@@ -206,8 +343,12 @@ function Extension() {
     }
   }
 
-  if (!configuredIds.length) return null;
-  if (loading && !variantMap.size) return null;
+  const hasAnyConfiguration =
+    configuredIds.length > 0 ||
+    (metafieldUpsellsEnabled && cartProductIds.size > 0);
+
+  if (!hasAnyConfiguration) return null;
+  if ((loading || metafieldLoading) && !offers.length && !error) return null;
   if (!offers.length && !error) return null;
 
   return (
