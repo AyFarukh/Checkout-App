@@ -7,37 +7,41 @@ export default async () => {
   render(<Extension />, document.body);
 };
 
+const VARIANT_FIELDS = `
+  id
+  title
+  availableForSale
+  price {
+    amount
+    currencyCode
+  }
+  image {
+    url
+    altText
+  }
+  product {
+    id
+    title
+    featuredImage {
+      url
+      altText
+    }
+  }
+`;
+
 const VARIANT_QUERY = `
   query UpsellVariants($ids: [ID!]!) {
     nodes(ids: $ids) {
       ... on ProductVariant {
-        id
-        title
-        availableForSale
-        price {
-          amount
-          currencyCode
-        }
-        image {
-          url
-          altText
-        }
-        product {
-          id
-          title
-          featuredImage {
-            url
-            altText
-          }
-        }
+        ${VARIANT_FIELDS}
       }
     }
   }
 `;
 
-// Resolve dynamic upsells directly from the variants that are currently in
-// checkout. This is more reliable than depending on line.merchandise.product
-// being present in the Checkout API payload.
+// Supports BOTH metafield types:
+// 1. Product variant reference (single)
+// 2. List of product variant references (multiple)
 const CART_VARIANT_METAFIELD_QUERY = `
   query CartVariantMetafieldUpsells(
     $ids: [ID!]!
@@ -54,24 +58,13 @@ const CART_VARIANT_METAFIELD_QUERY = `
             value
             reference {
               ... on ProductVariant {
-                id
-                title
-                availableForSale
-                price {
-                  amount
-                  currencyCode
-                }
-                image {
-                  url
-                  altText
-                }
-                product {
-                  id
-                  title
-                  featuredImage {
-                    url
-                    altText
-                  }
+                ${VARIANT_FIELDS}
+              }
+            }
+            references(first: 50) {
+              nodes {
+                ... on ProductVariant {
+                  ${VARIANT_FIELDS}
                 }
               }
             }
@@ -213,30 +206,42 @@ function Extension() {
         }
 
         const nextVariants = [];
+        const fallbackIds = [];
+        const processedProductIds = new Set();
 
         for (const cartVariant of data?.nodes || []) {
-          const metafield = cartVariant?.product?.metafield;
-          const reference = metafield?.reference;
+          const product = cartVariant?.product;
+          if (!product?.id || processedProductIds.has(product.id)) continue;
+          processedProductIds.add(product.id);
 
-          // Preferred setup: product metafield type = variant_reference.
-          if (reference?.id && reference.availableForSale !== false) {
-            nextVariants.push(reference);
-            continue;
+          const metafield = product.metafield;
+          if (!metafield) continue;
+
+          // MULTIPLE variants: list.variant_reference metafield.
+          for (const reference of metafield.references?.nodes || []) {
+            if (reference?.id && reference.availableForSale !== false) {
+              nextVariants.push(reference);
+            }
           }
 
-          // Fallback for stores where the metafield reference is not expanded
-          // but Shopify still returns a ProductVariant GID in `value`.
-          if (
-            typeof metafield?.value === 'string' &&
-            metafield.value.startsWith('gid://shopify/ProductVariant/')
-          ) {
-            try {
-              const fallback = await loadOneVariant(metafield.value);
-              if (fallback?.id && fallback.availableForSale !== false) {
-                nextVariants.push(fallback);
-              }
-            } catch {
-              // Ignore this product and keep processing the remaining cart lines.
+          // SINGLE variant: variant_reference metafield.
+          const singleReference = metafield.reference;
+          if (singleReference?.id && singleReference.availableForSale !== false) {
+            nextVariants.push(singleReference);
+          }
+
+          // Fallback: Shopify metafield value can be either one GID or a JSON
+          // array of GIDs. Resolve those IDs if reference(s) were not expanded.
+          for (const id of extractVariantIdsFromMetafieldValue(metafield.value)) {
+            fallbackIds.push(id);
+          }
+        }
+
+        if (fallbackIds.length) {
+          const fallbackVariants = await loadVariantsByIds(unique(fallbackIds));
+          for (const variant of fallbackVariants) {
+            if (variant?.id && variant.availableForSale !== false) {
+              nextVariants.push(variant);
             }
           }
         }
@@ -263,9 +268,11 @@ function Extension() {
       }
     }
 
-    async function loadOneVariant(id) {
+    async function loadVariantsByIds(ids) {
+      if (!ids.length) return [];
+
       const {data, errors} = await shopify.query(VARIANT_QUERY, {
-        variables: {ids: [id]},
+        variables: {ids},
         version: '2026-07',
       });
 
@@ -273,7 +280,7 @@ function Extension() {
         throw new Error(errors.map((item) => item.message).join(', '));
       }
 
-      return data?.nodes?.[0] || null;
+      return (data?.nodes || []).filter(Boolean);
     }
 
     loadMetafieldUpsells();
@@ -305,6 +312,7 @@ function Extension() {
       addVariantOffer(variant, source);
     };
 
+    // Every variant selected in the cart product metafield is shown.
     for (const variant of metafieldVariants) {
       addVariantOffer(variant, 'metafield');
     }
@@ -431,6 +439,27 @@ function Extension() {
       {error ? <s-banner tone="critical">{error}</s-banner> : null}
     </s-stack>
   );
+}
+
+function extractVariantIdsFromMetafieldValue(value) {
+  if (!value || typeof value !== 'string') return [];
+
+  if (value.startsWith('gid://shopify/ProductVariant/')) {
+    return [value];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.filter(
+      (id) =>
+        typeof id === 'string' &&
+        id.startsWith('gid://shopify/ProductVariant/'),
+    );
+  } catch {
+    return [];
+  }
 }
 
 function normalizeVariant(variant, source) {
