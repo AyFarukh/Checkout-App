@@ -39,9 +39,6 @@ const VARIANT_QUERY = `
   }
 `;
 
-// Supports BOTH metafield types:
-// 1. Product variant reference (single)
-// 2. List of product variant references (multiple)
 const CART_VARIANT_METAFIELD_QUERY = `
   query CartVariantMetafieldUpsells(
     $ids: [ID!]!
@@ -145,9 +142,7 @@ function Extension() {
           version: '2026-07',
         });
 
-        if (errors?.length) {
-          throw new Error(errors.map((item) => item.message).join(', '));
-        }
+        if (errors?.length) throw new Error(errors.map((item) => item.message).join(', '));
 
         const nextMap = new Map();
         for (const node of data?.nodes || []) {
@@ -166,10 +161,7 @@ function Extension() {
     }
 
     loadVariants();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [configuredIds.join('|')]);
 
   useEffect(() => {
@@ -178,12 +170,7 @@ function Extension() {
     async function loadMetafieldUpsells() {
       const checkoutVariantIds = [...cartVariantIds];
 
-      if (
-        !metafieldUpsellsEnabled ||
-        !checkoutVariantIds.length ||
-        !metafieldNamespace ||
-        !metafieldKey
-      ) {
+      if (!metafieldUpsellsEnabled || !checkoutVariantIds.length || !metafieldNamespace || !metafieldKey) {
         setMetafieldVariants([]);
         return;
       }
@@ -201,9 +188,7 @@ function Extension() {
           version: '2026-07',
         });
 
-        if (errors?.length) {
-          throw new Error(errors.map((item) => item.message).join(', '));
-        }
+        if (errors?.length) throw new Error(errors.map((item) => item.message).join(', '));
 
         const nextVariants = [];
         const fallbackIds = [];
@@ -217,45 +202,33 @@ function Extension() {
           const metafield = product.metafield;
           if (!metafield) continue;
 
-          // MULTIPLE variants: list.variant_reference metafield.
           for (const reference of metafield.references?.nodes || []) {
-            if (reference?.id && reference.availableForSale !== false) {
-              nextVariants.push(reference);
-            }
+            if (reference?.id && reference.availableForSale !== false) nextVariants.push(reference);
           }
 
-          // SINGLE variant: variant_reference metafield.
           const singleReference = metafield.reference;
           if (singleReference?.id && singleReference.availableForSale !== false) {
             nextVariants.push(singleReference);
           }
 
-          // Fallback: Shopify metafield value can be either one GID or a JSON
-          // array of GIDs. Resolve those IDs if reference(s) were not expanded.
-          for (const id of extractVariantIdsFromMetafieldValue(metafield.value)) {
-            fallbackIds.push(id);
-          }
+          for (const id of extractVariantIdsFromMetafieldValue(metafield.value)) fallbackIds.push(id);
         }
 
         if (fallbackIds.length) {
           const fallbackVariants = await loadVariantsByIds(unique(fallbackIds));
           for (const variant of fallbackVariants) {
-            if (variant?.id && variant.availableForSale !== false) {
-              nextVariants.push(variant);
-            }
+            if (variant?.id && variant.availableForSale !== false) nextVariants.push(variant);
           }
         }
 
         if (!cancelled) {
           const deduped = [];
           const seen = new Set();
-
           for (const variant of nextVariants) {
             if (!variant?.id || seen.has(variant.id)) continue;
             seen.add(variant.id);
             deduped.push(variant);
           }
-
           setMetafieldVariants(deduped);
         }
       } catch (err) {
@@ -270,30 +243,17 @@ function Extension() {
 
     async function loadVariantsByIds(ids) {
       if (!ids.length) return [];
-
       const {data, errors} = await shopify.query(VARIANT_QUERY, {
         variables: {ids},
         version: '2026-07',
       });
-
-      if (errors?.length) {
-        throw new Error(errors.map((item) => item.message).join(', '));
-      }
-
+      if (errors?.length) throw new Error(errors.map((item) => item.message).join(', '));
       return (data?.nodes || []).filter(Boolean);
     }
 
     loadMetafieldUpsells();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    [...cartVariantIds].join('|'),
-    metafieldUpsellsEnabled,
-    metafieldNamespace,
-    metafieldKey,
-  ]);
+    return () => { cancelled = true; };
+  }, [[...cartVariantIds].join('|'), metafieldUpsellsEnabled, metafieldNamespace, metafieldKey]);
 
   const offers = useMemo(() => {
     const result = [];
@@ -312,10 +272,7 @@ function Extension() {
       addVariantOffer(variant, source);
     };
 
-    // Every variant selected in the cart product metafield is shown.
-    for (const variant of metafieldVariants) {
-      addVariantOffer(variant, 'metafield');
-    }
+    for (const variant of metafieldVariants) addVariantOffer(variant, 'metafield');
 
     addOffer(settings.fixed_product, 'fixed');
     addOffer(settings.fixed_product_2, 'fixed');
@@ -329,39 +286,19 @@ function Extension() {
 
     for (const [triggerId, offerId] of rules) {
       if (!triggerId || !offerId) continue;
-
       const triggerVariant = variantMap.get(triggerId);
       const triggerProductId = triggerVariant?.product?.id;
-
-      const matchesCart =
-        cartVariantIds.has(triggerId) ||
-        (triggerProductId ? cartProductIds.has(triggerProductId) : false);
-
+      const matchesCart = cartVariantIds.has(triggerId) || (triggerProductId ? cartProductIds.has(triggerProductId) : false);
       if (matchesCart) addOffer(offerId, 'conditional');
     }
 
     return result;
-  }, [
-    variantMap,
-    metafieldVariants,
-    cartVariantIds,
-    cartProductIds,
-    settings.fixed_product,
-    settings.fixed_product_2,
-    settings.fixed_product_3,
-    settings.rule_1_trigger,
-    settings.rule_1_offer,
-    settings.rule_2_trigger,
-    settings.rule_2_offer,
-    settings.rule_3_trigger,
-    settings.rule_3_offer,
-  ]);
+  }, [variantMap, metafieldVariants, cartVariantIds, cartProductIds, settings.fixed_product, settings.fixed_product_2, settings.fixed_product_3, settings.rule_1_trigger, settings.rule_1_offer, settings.rule_2_trigger, settings.rule_2_offer, settings.rule_3_trigger, settings.rule_3_offer]);
 
   const canAddCartLine = instructions?.lines?.canAddCartLine !== false;
 
   async function addVariant(variantId) {
     if (!variantId || !canAddCartLine) return;
-
     setAddingId(variantId);
     setError('');
 
@@ -371,10 +308,7 @@ function Extension() {
         merchandiseId: variantId,
         quantity: 1,
       });
-
-      if (result.type === 'error') {
-        setError(result.message || 'Unable to add this item.');
-      }
+      if (result.type === 'error') setError(result.message || 'Unable to add this item.');
     } catch (err) {
       setError(err?.message || 'Unable to add this item.');
     } finally {
@@ -382,9 +316,7 @@ function Extension() {
     }
   }
 
-  const hasAnyConfiguration =
-    configuredIds.length > 0 ||
-    (metafieldUpsellsEnabled && cartVariantIds.size > 0);
+  const hasAnyConfiguration = configuredIds.length > 0 || (metafieldUpsellsEnabled && cartVariantIds.size > 0);
 
   if (!hasAnyConfiguration) return null;
   if ((loading || metafieldLoading) && !offers.length && !error) return null;
@@ -393,31 +325,47 @@ function Extension() {
   return (
     <s-stack gap="base">
       {offers.length ? (
-        <s-heading>{settings.heading || 'ELEVATE YOUR ROUTINE'}</s-heading>
+        <s-stack alignItems="center">
+          <s-heading>{settings.heading || 'ELEVATE YOUR ROUTINE'}</s-heading>
+        </s-stack>
       ) : null}
 
       {offers.map((product) => (
         <s-box
           key={product.variantId}
           border="base"
-          borderRadius="base"
+          borderRadius="large"
           padding="base"
         >
-          <s-stack direction="inline" gap="base" alignItems="center">
-            {product.image ? (
-              <s-image
-                src={product.image}
-                alt={product.imageAlt || product.title}
-                accessibilityDescription={product.imageAlt || product.title}
-              />
-            ) : null}
+          <s-grid
+            gridTemplateColumns="64px minmax(0, 1fr) auto"
+            gap="base"
+            alignItems="center"
+          >
+            <s-box
+              inlineSize="64px"
+              blockSize="64px"
+              borderRadius="large"
+              overflow="hidden"
+            >
+              {product.image ? (
+                <s-image
+                  src={product.image}
+                  alt={product.imageAlt || product.title}
+                  accessibilityDescription={product.imageAlt || product.title}
+                  fit="cover"
+                />
+              ) : null}
+            </s-box>
 
-            <s-stack gap="small-200">
+            <s-stack gap="small-100">
               <s-text emphasis="bold">{product.title}</s-text>
               {product.variantTitle && product.variantTitle !== 'Default Title' ? (
                 <s-text tone="subdued">{product.variantTitle}</s-text>
               ) : null}
-              {product.price ? <s-text>{product.price}</s-text> : null}
+              {product.price ? (
+                <s-text tone="accent">{product.price}</s-text>
+              ) : null}
             </s-stack>
 
             <s-button
@@ -428,7 +376,7 @@ function Extension() {
             >
               Add
             </s-button>
-          </s-stack>
+          </s-grid>
         </s-box>
       ))}
 
@@ -443,20 +391,12 @@ function Extension() {
 
 function extractVariantIdsFromMetafieldValue(value) {
   if (!value || typeof value !== 'string') return [];
-
-  if (value.startsWith('gid://shopify/ProductVariant/')) {
-    return [value];
-  }
+  if (value.startsWith('gid://shopify/ProductVariant/')) return [value];
 
   try {
     const parsed = JSON.parse(value);
     if (!Array.isArray(parsed)) return [];
-
-    return parsed.filter(
-      (id) =>
-        typeof id === 'string' &&
-        id.startsWith('gid://shopify/ProductVariant/'),
-    );
+    return parsed.filter((id) => typeof id === 'string' && id.startsWith('gid://shopify/ProductVariant/'));
   } catch {
     return [];
   }
@@ -469,12 +409,7 @@ function normalizeVariant(variant, source) {
     title: variant.product?.title || variant.title || 'Recommended product',
     variantTitle: variant.title || '',
     image: variant.image?.url || variant.product?.featuredImage?.url || null,
-    imageAlt:
-      variant.image?.altText ||
-      variant.product?.featuredImage?.altText ||
-      variant.product?.title ||
-      variant.title ||
-      'Recommended product',
+    imageAlt: variant.image?.altText || variant.product?.featuredImage?.altText || variant.product?.title || variant.title || 'Recommended product',
     price: formatMoney(variant.price?.amount, variant.price?.currencyCode),
   };
 }
