@@ -1,3 +1,4 @@
+/** @jsxImportSource preact */
 import '@shopify/ui-extensions/preact';
 import {render} from 'preact';
 import {useMemo, useState} from 'preact/hooks';
@@ -94,10 +95,6 @@ function Extension() {
 function normalizeProductReference(reference) {
   if (!reference) return null;
 
-  // Shopify product_reference settings may resolve to an object containing the
-  // product and variants. We intentionally select the first available variant
-  // for the fixed offer. Contextual multi-rule offers will be supplied by the
-  // app backend in the next implementation layer.
   const variant =
     reference.variant ||
     reference.selectedOrFirstAvailableVariant ||
