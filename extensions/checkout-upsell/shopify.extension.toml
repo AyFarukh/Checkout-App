@@ -23,5 +23,53 @@ description = "Heading displayed above checkout upsells"
 [[extensions.settings.fields]]
 key = "fixed_product"
 type = "variant_reference"
-name = "Fixed upsell product"
-description = "Optional product variant shown as a fixed upsell"
+name = "Fixed upsell 1"
+description = "Always show this product variant when it is not already in checkout"
+
+[[extensions.settings.fields]]
+key = "fixed_product_2"
+type = "variant_reference"
+name = "Fixed upsell 2"
+description = "Optional second product variant that is always offered"
+
+[[extensions.settings.fields]]
+key = "fixed_product_3"
+type = "variant_reference"
+name = "Fixed upsell 3"
+description = "Optional third product variant that is always offered"
+
+[[extensions.settings.fields]]
+key = "rule_1_trigger"
+type = "variant_reference"
+name = "Rule 1 - cart product"
+description = "When this product is in checkout, show the Rule 1 upsell"
+
+[[extensions.settings.fields]]
+key = "rule_1_offer"
+type = "variant_reference"
+name = "Rule 1 - upsell product"
+description = "Product variant to offer when Rule 1 cart product is present"
+
+[[extensions.settings.fields]]
+key = "rule_2_trigger"
+type = "variant_reference"
+name = "Rule 2 - cart product"
+description = "When this product is in checkout, show the Rule 2 upsell"
+
+[[extensions.settings.fields]]
+key = "rule_2_offer"
+type = "variant_reference"
+name = "Rule 2 - upsell product"
+description = "Product variant to offer when Rule 2 cart product is present"
+
+[[extensions.settings.fields]]
+key = "rule_3_trigger"
+type = "variant_reference"
+name = "Rule 3 - cart product"
+description = "When this product is in checkout, show the Rule 3 upsell"
+
+[[extensions.settings.fields]]
+key = "rule_3_offer"
+type = "variant_reference"
+name = "Rule 3 - upsell product"
+description = "Product variant to offer when Rule 3 cart product is present"
