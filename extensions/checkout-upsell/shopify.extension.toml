@@ -22,6 +22,6 @@ description = "Heading displayed above checkout upsells"
 
 [[extensions.settings.fields]]
 key = "fixed_product"
-type = "product_reference"
+type = "variant_reference"
 name = "Fixed upsell product"
-description = "Optional product shown as a fixed upsell"
+description = "Optional product variant shown as a fixed upsell"
