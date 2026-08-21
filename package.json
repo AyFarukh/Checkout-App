@@ -9,6 +9,7 @@
     "info": "shopify app info"
   },
   "dependencies": {
+    "@preact/signals": "latest",
     "@shopify/ui-extensions": "latest",
     "preact": "latest"
   },
