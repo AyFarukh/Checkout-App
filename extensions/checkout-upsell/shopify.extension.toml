@@ -21,6 +21,24 @@ name = "Heading"
 description = "Heading displayed above checkout upsells"
 
 [[extensions.settings.fields]]
+key = "enable_metafield_upsells"
+type = "boolean"
+name = "Enable product metafield upsells"
+description = "Read an upsell variant from each cart product metafield"
+
+[[extensions.settings.fields]]
+key = "metafield_namespace"
+type = "single_line_text_field"
+name = "Metafield namespace"
+description = "Product metafield namespace. Default: custom"
+
+[[extensions.settings.fields]]
+key = "metafield_key"
+type = "single_line_text_field"
+name = "Metafield key"
+description = "Product metafield key. Default: checkout_upsell_variant"
+
+[[extensions.settings.fields]]
 key = "fixed_product"
 type = "variant_reference"
 name = "Fixed upsell 1"
