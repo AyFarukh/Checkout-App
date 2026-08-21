@@ -1,0 +1,9 @@
+{
+  "name": "checkout-upsell",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@shopify/ui-extensions": "latest",
+    "preact": "latest"
+  }
+}
