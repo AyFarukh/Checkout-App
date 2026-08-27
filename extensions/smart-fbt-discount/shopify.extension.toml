@@ -12,5 +12,6 @@ input_query = "src/cart_lines_discounts_generate_run.graphql"
 export = "cart-lines-discounts-generate-run"
 
 [extensions.build]
-command = ""
-path = "dist/function.wasm"
+command = "npm run build"
+path = "dist/index.wasm"
+watch = [ "src/**/*.js", "src/**/*.graphql" ]
