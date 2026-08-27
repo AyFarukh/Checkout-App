@@ -1,0 +1,25 @@
+query CartInput {
+  cart {
+    lines {
+      id
+      quantity
+      merchandise {
+        ... on ProductVariant {
+          id
+        }
+      }
+      fbtBundle: attribute(key: "_fbt_bundle") {
+        value
+      }
+      fbtBundleId: attribute(key: "_fbt_bundle_id") {
+        value
+      }
+      fbtDiscountPercentage: attribute(key: "_fbt_discount_percentage") {
+        value
+      }
+    }
+  }
+  discount {
+    discountClasses
+  }
+}
