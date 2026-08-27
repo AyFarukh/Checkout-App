@@ -1,10 +1,7 @@
-import {
-  DiscountClass,
-  ProductDiscountSelectionStrategy,
-} from "../generated/api";
-
 const EMPTY_RESULT = { operations: [] };
 const REQUIRED_BUNDLE_LINES = 3;
+const PRODUCT_DISCOUNT_CLASS = "PRODUCT";
+const ALL_SELECTION_STRATEGY = "ALL";
 
 function clean(value) {
   return value == null ? "" : String(value).trim();
@@ -25,19 +22,9 @@ function merchandiseId(line) {
   return clean(line?.merchandise?.id);
 }
 
-/**
- * Apply Smart FBT discounts only to cart lines created by the theme bundle flow.
- *
- * Safety rules:
- * - normal cart lines are never targeted, even when they use the same variant
- * - all discounted lines must share the same _fbt_bundle_id
- * - a bundle must contain at least 3 distinct variants
- * - every qualifying line must carry the same valid discount percentage
- * - only one unit per qualifying line is discounted
- */
 export function cartLinesDiscountsGenerateRun(input) {
   const discountClasses = input?.discount?.discountClasses || [];
-  if (!discountClasses.includes(DiscountClass.Product)) return EMPTY_RESULT;
+  if (!discountClasses.includes(PRODUCT_DISCOUNT_CLASS)) return EMPTY_RESULT;
 
   const groups = new Map();
 
@@ -54,7 +41,7 @@ export function cartLinesDiscountsGenerateRun(input) {
 
   const candidates = [];
 
-  for (const [bundleId, entries] of groups) {
+  for (const entries of groups.values()) {
     if (entries.length < REQUIRED_BUNDLE_LINES) continue;
 
     const percentages = new Set(entries.map((entry) => entry.percentage));
@@ -91,7 +78,7 @@ export function cartLinesDiscountsGenerateRun(input) {
       {
         productDiscountsAdd: {
           candidates,
-          selectionStrategy: ProductDiscountSelectionStrategy.All,
+          selectionStrategy: ALL_SELECTION_STRATEGY,
         },
       },
     ],
