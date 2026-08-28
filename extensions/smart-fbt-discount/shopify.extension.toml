@@ -10,3 +10,8 @@ description = "Discounts only qualifying Smart Frequently Bought Together cart l
 target = "cart.lines.discounts.generate.run"
 input_query = "src/cart_lines_discounts_generate_run.graphql"
 export = "cart-lines-discounts-generate-run"
+
+[extensions.build]
+typegen_command = "node scripts/typegen-noop.js"
+path = "dist/index.wasm"
+watch = [ "src/**/*.js", "src/**/*.graphql" ]
