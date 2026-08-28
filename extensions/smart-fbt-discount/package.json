@@ -9,6 +9,6 @@
     "typegen": "npm exec -- shopify app function typegen"
   },
   "dependencies": {
-    "@shopify/shopify_function": "latest"
+    "@shopify/shopify_function": "~2.0.0"
   }
 }
