@@ -17,6 +17,9 @@ query CartInput {
       fbtDiscountPercentage: attribute(key: "_fbt_discount_percentage") {
         value
       }
+      ftrFreeGift: attribute(key: "_ftr_free_gift") {
+        value
+      }
     }
   }
   discount {
