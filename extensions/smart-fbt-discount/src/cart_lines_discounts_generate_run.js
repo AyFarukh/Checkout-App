@@ -18,6 +18,11 @@ function isBundleLine(line) {
     Number(line?.quantity || 0) > 0;
 }
 
+function isFreeGiftLine(line) {
+  return clean(line?.ftrFreeGift?.value).toLowerCase() === "true" &&
+    Number(line?.quantity || 0) > 0;
+}
+
 function merchandiseId(line) {
   return clean(line?.merchandise?.id);
 }
@@ -27,8 +32,15 @@ export function cartLinesDiscountsGenerateRun(input) {
   if (!discountClasses.includes(PRODUCT_DISCOUNT_CLASS)) return EMPTY_RESULT;
 
   const groups = new Map();
+  const freeGiftLines = [];
 
   for (const line of input?.cart?.lines || []) {
+    // Free gifts are identified ONLY by the private _ftr_free_gift property.
+    // They do not need any Smart FBT bundle properties to receive 100% off.
+    if (isFreeGiftLine(line)) {
+      freeGiftLines.push(line);
+    }
+
     if (!isBundleLine(line)) continue;
 
     const bundleId = clean(line.fbtBundleId.value);
@@ -40,6 +52,27 @@ export function cartLinesDiscountsGenerateRun(input) {
   }
 
   const candidates = [];
+
+  // A line explicitly marked _ftr_free_gift=true is always 100% discounted.
+  // Target quantity 1 so only the qualified gift unit is free.
+  for (const line of freeGiftLines) {
+    candidates.push({
+      message: "Free Gift",
+      targets: [
+        {
+          cartLine: {
+            id: line.id,
+            quantity: 1,
+          },
+        },
+      ],
+      value: {
+        percentage: {
+          value: 100,
+        },
+      },
+    });
+  }
 
   for (const entries of groups.values()) {
     if (entries.length < REQUIRED_BUNDLE_LINES) continue;
