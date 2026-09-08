@@ -3,11 +3,11 @@
 client_id = "2faa75d1b8a04a2fb7872c3b0b1b437f"
 application_url = "https://shopify.dev/apps/default-app-home"
 embedded = true
-name = "checkout-upsell-app"
+name = "Freetheroots Checkout Events"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_products"
+scopes = "read_products,read_discounts,write_discounts"
 
 [auth]
 redirect_urls = [ "https://shopify.dev/apps/default-app-home/api/auth" ]
