@@ -4,13 +4,17 @@ client_id = "7b87691c62ba9da666de9e833511c508"
 name = "freetheroot-checkout-upsell"
 application_url = "https://shopify.dev/apps/default-app-home"
 embedded = true
+web_directories = ["rewards"]
 
 [webhooks]
 api_version = "2026-10"
 
 [access_scopes]
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_products"
+scopes = "read_products,read_customers"
+
+[access.admin]
+embedded_app_direct_api_access = true
+direct_api_mode = "online"
 
 [auth]
 redirect_urls = [ "https://shopify.dev/apps/default-app-home/api/auth" ]
