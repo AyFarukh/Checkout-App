@@ -18,14 +18,14 @@ export async function adminAuth(req, res, next) {
         audience: apiKey,
       });
 
-      const destination = String(payload.dest || "");
-      const shop = destination.replace(/^https:\/\//, "").replace(/\/$/, "");
-      if (!shop.endsWith(".myshopify.com")) {
+      const issuerHost = new URL(String(payload.iss || "")).hostname;
+      const destinationHost = new URL(String(payload.dest || "")).hostname;
+      if (issuerHost !== destinationHost || !destinationHost.endsWith(".myshopify.com")) {
         return res.status(401).json({ error: "Invalid Shopify session" });
       }
 
       req.shopifySession = {
-        shop,
+        shop: destinationHost,
         subject: payload.sub ? String(payload.sub) : "shopify-admin",
       };
       return next();
