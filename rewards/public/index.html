@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FreeTheRoot Rewards Admin</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">FreeTheRoot</p>
+          <h1>Rewards Admin</h1>
+        </div>
+        <div class="connection">
+          <span id="healthDot" class="dot"></span>
+          <span id="healthText">Checking database…</span>
+        </div>
+      </header>
+
+      <section class="setup card">
+        <div class="field">
+          <label for="shop">Shop domain</label>
+          <input id="shop" placeholder="your-store.myshopify.com" />
+        </div>
+        <div class="field">
+          <label for="adminKey">Admin key</label>
+          <input id="adminKey" type="password" placeholder="REWARDS_ADMIN_KEY" />
+        </div>
+        <button id="loadDashboard">Load dashboard</button>
+      </section>
+
+      <section class="stats-grid">
+        <article class="stat card"><span>Active members</span><strong id="members">—</strong></article>
+        <article class="stat card"><span>Points outstanding</span><strong id="outstanding">—</strong></article>
+        <article class="stat card"><span>Lifetime earned</span><strong id="earned">—</strong></article>
+        <article class="stat card"><span>Lifetime redeemed</span><strong id="redeemed">—</strong></article>
+      </section>
+
+      <section class="grid-two">
+        <article class="card">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Customers</p>
+              <h2>Find reward account</h2>
+            </div>
+          </div>
+          <div class="search-row">
+            <input id="customerSearch" placeholder="Email, name, or Shopify customer ID" />
+            <button id="searchCustomers" class="secondary">Search</button>
+          </div>
+          <div id="customerResults" class="list empty">No customers loaded.</div>
+        </article>
+
+        <article class="card">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Manual adjustment</p>
+              <h2>Control points</h2>
+            </div>
+          </div>
+          <form id="adjustForm" class="form-stack">
+            <input id="customerId" placeholder="Shopify customer ID" required />
+            <div class="two-col">
+              <select id="operation">
+                <option value="ADD">Add points</option>
+                <option value="REMOVE">Remove points</option>
+              </select>
+              <input id="points" type="number" min="1" step="1" placeholder="Points" required />
+            </div>
+            <input id="reason" placeholder="Reason, e.g. Customer service credit" required />
+            <textarea id="note" placeholder="Internal note"></textarea>
+            <button type="submit">Apply adjustment</button>
+          </form>
+          <p id="adjustStatus" class="status"></p>
+        </article>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Ledger</p>
+            <h2>Recent points activity</h2>
+          </div>
+          <button id="refreshActivity" class="secondary">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Date</th><th>Customer</th><th>Type</th><th>Points</th><th>Source</th><th>Balance</th></tr>
+            </thead>
+            <tbody id="activityBody"><tr><td colspan="6">No activity loaded.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <script src="/admin.js" defer></script>
+  </body>
+</html>
