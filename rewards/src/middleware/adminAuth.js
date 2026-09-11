@@ -1,14 +1,46 @@
-export function adminAuth(req, res, next) {
-  const configuredKey = process.env.REWARDS_ADMIN_KEY;
+import { jwtVerify } from "jose";
 
-  if (!configuredKey) {
-    return res.status(503).json({ error: "REWARDS_ADMIN_KEY is not configured" });
-  }
+function bearerToken(req) {
+  const header = req.get("authorization") || "";
+  return header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+}
 
-  const suppliedKey = req.get("x-rewards-admin-key");
-  if (suppliedKey !== configuredKey) {
+export async function adminAuth(req, res, next) {
+  try {
+    const token = bearerToken(req);
+    const apiSecret = process.env.SHOPIFY_API_SECRET;
+    const apiKey = process.env.SHOPIFY_API_KEY;
+
+    if (token && apiSecret && apiKey) {
+      const secret = new TextEncoder().encode(apiSecret);
+      const { payload } = await jwtVerify(token, secret, {
+        algorithms: ["HS256"],
+        audience: apiKey,
+      });
+
+      const destination = String(payload.dest || "");
+      const shop = destination.replace(/^https:\/\//, "").replace(/\/$/, "");
+      if (!shop.endsWith(".myshopify.com")) {
+        return res.status(401).json({ error: "Invalid Shopify session" });
+      }
+
+      req.shopifySession = {
+        shop,
+        subject: payload.sub ? String(payload.sub) : "shopify-admin",
+      };
+      return next();
+    }
+
+    const configuredKey = process.env.REWARDS_ADMIN_KEY;
+    const suppliedKey = req.get("x-rewards-admin-key");
+    if (configuredKey && suppliedKey === configuredKey) {
+      req.shopifySession = { shop: String(req.query.shop || req.body?.shop || ""), subject: "local-admin" };
+      return next();
+    }
+
     return res.status(401).json({ error: "Unauthorized" });
+  } catch (error) {
+    console.error("[Rewards Auth]", error.message);
+    return res.status(401).json({ error: "Invalid or expired Shopify session" });
   }
-
-  next();
 }
