@@ -1,100 +1,54 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>FreeTheRoot Rewards Admin</title>
-    <link rel="stylesheet" href="/styles.css" />
-  </head>
-  <body>
-    <main class="shell">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">FreeTheRoot</p>
-          <h1>Rewards Admin</h1>
-        </div>
-        <div class="connection">
-          <span id="healthDot" class="dot"></span>
-          <span id="healthText">Checking database…</span>
-        </div>
-      </header>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="shopify-api-key" content="%SHOPIFY_API_KEY%" />
+  <title>FreeTheRoot Rewards</title>
+  <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <s-app-nav>
+    <s-link href="/" rel="home">Overview</s-link>
+    <s-link href="/customers">Customers</s-link>
+    <s-link href="/activity">Activity</s-link>
+    <s-link href="/earn-rules">Earn rules</s-link>
+    <s-link href="/rewards">Rewards</s-link>
+    <s-link href="/settings">Settings</s-link>
+  </s-app-nav>
 
-      <section class="setup card">
-        <div class="field">
-          <label for="shop">Shop domain</label>
-          <input id="shop" placeholder="your-store.myshopify.com" />
-        </div>
-        <div class="field">
-          <label for="adminKey">Admin key</label>
-          <input id="adminKey" type="password" placeholder="REWARDS_ADMIN_KEY" />
-        </div>
-        <button id="loadDashboard">Load dashboard</button>
-      </section>
+  <main class="shell">
+    <header class="topbar">
+      <div><p class="eyebrow">FreeTheRoot</p><h1 id="pageTitle">Rewards</h1></div>
+      <div class="connection"><span id="healthDot" class="dot"></span><span id="healthText">Connecting…</span></div>
+    </header>
 
-      <section class="stats-grid">
-        <article class="stat card"><span>Active members</span><strong id="members">—</strong></article>
-        <article class="stat card"><span>Points outstanding</span><strong id="outstanding">—</strong></article>
-        <article class="stat card"><span>Lifetime earned</span><strong id="earned">—</strong></article>
-        <article class="stat card"><span>Lifetime redeemed</span><strong id="redeemed">—</strong></article>
-      </section>
+    <section class="view" data-view="overview">
+      <div class="stats-grid">
+        <article class="stat card"><span>Active members</span><strong id="members">0</strong></article>
+        <article class="stat card"><span>Points outstanding</span><strong id="outstanding">0</strong></article>
+        <article class="stat card"><span>Lifetime earned</span><strong id="earned">0</strong></article>
+        <article class="stat card"><span>Lifetime redeemed</span><strong id="redeemed">0</strong></article>
+      </div>
+      <section class="card"><div class="section-head"><div><p class="eyebrow">Ledger</p><h2>Recent activity</h2></div><button id="refreshDashboard" class="secondary">Refresh</button></div><div class="table-wrap"><table><thead><tr><th>Date</th><th>Customer</th><th>Type</th><th>Points</th><th>Source</th><th>Balance</th></tr></thead><tbody id="dashboardActivity"><tr><td colspan="6">No activity yet.</td></tr></tbody></table></div></section>
+    </section>
 
-      <section class="grid-two">
-        <article class="card">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">Customers</p>
-              <h2>Find reward account</h2>
-            </div>
-          </div>
-          <div class="search-row">
-            <input id="customerSearch" placeholder="Email, name, or Shopify customer ID" />
-            <button id="searchCustomers" class="secondary">Search</button>
-          </div>
-          <div id="customerResults" class="list empty">No customers loaded.</div>
-        </article>
+    <section class="view" data-view="customers" hidden>
+      <div class="grid-two">
+        <article class="card"><p class="eyebrow">Shopify customers</p><h2>Find customer</h2><div class="search-row"><input id="customerSearch" placeholder="Name or email" /><button id="searchCustomers">Search</button></div><div id="customerResults" class="list empty">Search Shopify customers to manage their points.</div></article>
+        <article class="card"><p class="eyebrow">Manual adjustment</p><h2>Control points</h2><form id="adjustForm" class="form-stack"><input id="customerId" placeholder="Select a customer" readonly required /><input id="selectedCustomerName" placeholder="Customer" readonly /><div class="two-col"><select id="operation"><option value="ADD">Add points</option><option value="REMOVE">Remove points</option></select><input id="points" type="number" min="1" step="1" placeholder="Points" required /></div><input id="reason" placeholder="Reason" required /><textarea id="note" placeholder="Internal note"></textarea><button type="submit">Apply adjustment</button></form><p id="adjustStatus" class="status"></p></article>
+      </div>
+    </section>
 
-        <article class="card">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">Manual adjustment</p>
-              <h2>Control points</h2>
-            </div>
-          </div>
-          <form id="adjustForm" class="form-stack">
-            <input id="customerId" placeholder="Shopify customer ID" required />
-            <div class="two-col">
-              <select id="operation">
-                <option value="ADD">Add points</option>
-                <option value="REMOVE">Remove points</option>
-              </select>
-              <input id="points" type="number" min="1" step="1" placeholder="Points" required />
-            </div>
-            <input id="reason" placeholder="Reason, e.g. Customer service credit" required />
-            <textarea id="note" placeholder="Internal note"></textarea>
-            <button type="submit">Apply adjustment</button>
-          </form>
-          <p id="adjustStatus" class="status"></p>
-        </article>
-      </section>
+    <section class="view" data-view="activity" hidden><section class="card"><div class="section-head"><div><p class="eyebrow">Audit trail</p><h2>Points activity</h2></div><button id="refreshActivity" class="secondary">Refresh</button></div><div class="table-wrap"><table><thead><tr><th>Date</th><th>Customer</th><th>Type</th><th>Points</th><th>Source</th><th>Balance</th></tr></thead><tbody id="activityBody"><tr><td colspan="6">Loading…</td></tr></tbody></table></div></section></section>
 
-      <section class="card">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Ledger</p>
-            <h2>Recent points activity</h2>
-          </div>
-          <button id="refreshActivity" class="secondary">Refresh</button>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr><th>Date</th><th>Customer</th><th>Type</th><th>Points</th><th>Source</th><th>Balance</th></tr>
-            </thead>
-            <tbody id="activityBody"><tr><td colspan="6">No activity loaded.</td></tr></tbody>
-          </table>
-        </div>
-      </section>
-    </main>
-    <script src="/admin.js" defer></script>
-  </body>
+    <section class="view" data-view="earn-rules" hidden><div class="grid-two"><article class="card"><p class="eyebrow">Configuration</p><h2>Earn rules</h2><div id="rulesList" class="list empty">No rules yet.</div></article><article class="card"><p class="eyebrow">New rule</p><h2>Create earning rule</h2><form id="ruleForm" class="form-stack"><input id="ruleName" placeholder="Rule name" required /><select id="ruleType"><option value="PURCHASE">Purchase</option><option value="ACCOUNT_CREATE">Create account</option><option value="BIRTHDAY">Birthday</option><option value="REVIEW">Review</option><option value="REFERRAL">Referral</option><option value="BONUS">Bonus</option></select><div class="two-col"><input id="rulePoints" type="number" min="0" placeholder="Fixed points" /><input id="rulePerDollar" type="number" min="0" step="0.01" placeholder="Points per $1" /></div><button type="submit">Create rule</button></form></article></div></section>
+
+    <section class="view" data-view="rewards" hidden><div class="grid-two"><article class="card"><p class="eyebrow">Catalog</p><h2>Rewards</h2><div id="rewardsList" class="list empty">No rewards yet.</div></article><article class="card"><p class="eyebrow">New reward</p><h2>Create reward</h2><form id="rewardForm" class="form-stack"><input id="rewardName" placeholder="$5 off" required /><select id="rewardType"><option value="FIXED_DISCOUNT">Fixed discount</option><option value="PERCENTAGE_DISCOUNT">Percentage discount</option><option value="FREE_SHIPPING">Free shipping</option><option value="FREE_PRODUCT">Free product</option></select><div class="two-col"><input id="rewardCost" type="number" min="1" placeholder="Points cost" required /><input id="rewardValue" type="number" min="0" step="0.01" placeholder="Discount value" /></div><input id="rewardMinimum" type="number" min="0" step="0.01" placeholder="Minimum spend" /><button type="submit">Create reward</button></form></article></div></section>
+
+    <section class="view" data-view="settings" hidden><section class="card settings-card"><p class="eyebrow">Program settings</p><h2>Rewards settings</h2><form id="settingsForm" class="form-stack"><div class="two-col"><input id="pointSingular" placeholder="point" /><input id="pointPlural" placeholder="points" /></div><label class="check"><input id="expireEnabled" type="checkbox" /> Enable point expiration</label><input id="expireDays" type="number" min="1" placeholder="Expiration days" /><select id="refundPolicy"><option value="REVERSE_PROPORTIONAL">Reverse points proportionally on refund</option><option value="REVERSE_FULL">Reverse all earned points</option><option value="NO_REVERSAL">Do not reverse points</option></select><label class="check"><input id="discountCombinations" type="checkbox" /> Allow reward discount combinations</label><button type="submit">Save settings</button></form><p id="settingsStatus" class="status"></p></section></section>
+  </main>
+  <script src="/admin.js" defer></script>
+</body>
 </html>
