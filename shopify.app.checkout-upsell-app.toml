@@ -4,10 +4,14 @@ client_id = "2faa75d1b8a04a2fb7872c3b0b1b437f"
 application_url = "https://shopify.dev/apps/default-app-home"
 embedded = true
 name = "Freetheroots Checkout Events"
+web_directories = ["rewards"]
 
 [access_scopes]
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_products,read_discounts,write_discounts"
+scopes = "read_products,read_discounts,write_discounts,read_customers"
+
+[access.admin]
+embedded_app_direct_api_access = true
+direct_api_mode = "online"
 
 [auth]
 redirect_urls = [ "https://shopify.dev/apps/default-app-home/api/auth" ]
