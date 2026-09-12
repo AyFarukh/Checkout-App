@@ -1,0 +1,6 @@
+name = "rewards-admin"
+roles = ["frontend", "backend"]
+webhooks_path = "/webhooks"
+
+[commands]
+dev = "cd rewards && npm run dev"
