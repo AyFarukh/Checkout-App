@@ -1,0 +1,35 @@
+export const ADMIN_ERROR_CODES = Object.freeze({
+  INVALID_REQUEST: "INVALID_REQUEST",
+  INVALID_WEBHOOK_EVENT_ID: "INVALID_WEBHOOK_EVENT_ID",
+  INVALID_PAGE: "INVALID_PAGE",
+  INVALID_LIMIT: "INVALID_LIMIT",
+  INVALID_WEBHOOK_TOPIC: "INVALID_WEBHOOK_TOPIC",
+  IDEMPOTENCY_KEY_REQUIRED: "IDEMPOTENCY_KEY_REQUIRED",
+  IDEMPOTENCY_KEY_REUSED: "IDEMPOTENCY_KEY_REUSED",
+  IDEMPOTENCY_IN_PROGRESS: "IDEMPOTENCY_IN_PROGRESS",
+  UNAUTHENTICATED: "UNAUTHENTICATED",
+  FORBIDDEN: "FORBIDDEN",
+  WEBHOOK_EVENT_NOT_FOUND: "WEBHOOK_EVENT_NOT_FOUND",
+  WEBHOOK_NOT_RETRYABLE: "WEBHOOK_NOT_RETRYABLE",
+  WEBHOOK_STATE_CHANGED: "WEBHOOK_STATE_CHANGED",
+  RETRY_ALREADY_REQUESTED: "RETRY_ALREADY_REQUESTED",
+  RATE_LIMITED: "RATE_LIMITED",
+  DATABASE_UNAVAILABLE: "DATABASE_UNAVAILABLE",
+  REWARDS_UNAVAILABLE: "REWARDS_UNAVAILABLE",
+  INTERNAL_ERROR: "INTERNAL_ERROR",
+});
+
+export class ApiError extends Error {
+  constructor(statusCode, code, message, details) {
+    super(message);
+    this.name = "ApiError";
+    this.statusCode = Number(statusCode) || 500;
+    this.code = code || ADMIN_ERROR_CODES.INTERNAL_ERROR;
+    if (details !== undefined) this.details = details;
+    Error.captureStackTrace?.(this, ApiError);
+  }
+}
+
+export function apiError(statusCode, code, message, details) {
+  return new ApiError(statusCode, code, message, details);
+}
