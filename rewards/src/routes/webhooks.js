@@ -1,0 +1,58 @@
+import crypto from "node:crypto";
+import { Router } from "express";
+import { awardForAction, reverseForRefund } from "../services/rules.service.js";
+
+export const webhookRouter = Router();
+
+function verifyWebhook(req) {
+  const secret = process.env.SHOPIFY_API_SECRET;
+  const hmac = req.get("X-Shopify-Hmac-Sha256") || "";
+  if (!secret || !hmac || !Buffer.isBuffer(req.body)) return false;
+  const digest = crypto.createHmac("sha256", secret).update(req.body).digest("base64");
+  const a = Buffer.from(digest);
+  const b = Buffer.from(hmac);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function payload(req) {
+  return JSON.parse(req.body.toString("utf8"));
+}
+
+function shop(req) {
+  return String(req.get("X-Shopify-Shop-Domain") || "").toLowerCase();
+}
+
+webhookRouter.use((req, res, next) => {
+  if (!verifyWebhook(req)) return res.status(401).send("Invalid webhook signature");
+  next();
+});
+
+webhookRouter.post("/orders-paid", async (req, res, next) => {
+  try {
+    const order = payload(req);
+    const eligibleAmount = Number(order.subtotal_price || order.current_subtotal_price || 0);
+    await awardForAction({
+      shop: shop(req), type: "PURCHASE", customer: order.customer, eventId: order.id,
+      amount: eligibleAmount, source: "SHOPIFY_ORDER_PAID", shopifyOrderId: String(order.id),
+      metadata: { orderName: order.name, eligibleAmount, currency: order.currency },
+    });
+    res.status(200).send("OK");
+  } catch (error) { next(error); }
+});
+
+webhookRouter.post("/customers-create", async (req, res, next) => {
+  try {
+    const customer = payload(req);
+    await awardForAction({ shop: shop(req), type: "ACCOUNT_CREATE", customer, eventId: customer.id, source: "SHOPIFY_CUSTOMER_CREATED" });
+    res.status(200).send("OK");
+  } catch (error) { next(error); }
+});
+
+webhookRouter.post("/refunds-create", async (req, res, next) => {
+  try {
+    const refund = payload(req);
+    const refundedAmount = (refund.transactions || []).filter((t) => t.kind === "refund" && t.status === "success").reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    await reverseForRefund({ shop: shop(req), orderId: refund.order_id, refundId: refund.id, refundedAmount });
+    res.status(200).send("OK");
+  } catch (error) { next(error); }
+});
