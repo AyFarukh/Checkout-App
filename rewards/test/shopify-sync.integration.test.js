@@ -17,13 +17,35 @@ async function drain() { for (let i = 0; i < 10; i += 1) { await processRewardSy
 async function reload(id) { return Reward.findById(id).lean(); }
 
 async function queryDiscount(id) {
+  if (!id) return null;
   const data = await shopifyAdminGraphql(SHOP, `query FtrDiscount($id: ID!) { automaticDiscountNode(id: $id) { id automaticDiscount { ... on DiscountAutomaticApp { title status startsAt endsAt appDiscountType { functionId } metafield(namespace: "freetheroot_rewards", key: "configuration") { value } } } } }`, { id });
   return data?.automaticDiscountNode?.automaticDiscount || null;
 }
 
 async function cleanupDiscount(id) {
   if (!id) return;
-  try { await shopifyAdminGraphql(SHOP, `mutation FtrCleanup($id: ID!) { discountAutomaticDelete(id: $id) { deletedAutomaticDiscountId userErrors { field message } } }`, { id }); } catch (error) { console.warn("Integration cleanup failed", error.message); }
+  const data = await shopifyAdminGraphql(SHOP, `mutation FtrCleanup($id: ID!) { discountAutomaticDelete(id: $id) { deletedAutomaticDiscountId userErrors { field message } } }`, { id });
+  const result = data?.discountAutomaticDelete;
+  if (result?.userErrors?.length) throw new Error(`Shopify cleanup failed: ${result.userErrors.map((e) => e.message).join("; ")}`);
+  assert.equal(result?.deletedAutomaticDiscountId, id, `Shopify must confirm deletion of ${id}`);
+}
+
+async function assertRemoteDiscountRemoved(id) {
+  if (!id) return;
+  const remote = await queryDiscount(id);
+  assert.equal(remote, null, `test-created Shopify discount ${id} must be removed`);
+}
+
+async function assertMongoFixturesRemoved(rewardIds) {
+  const ids = [...rewardIds];
+  const [namedRewards, rewardsById, jobsByAggregate] = await Promise.all([
+    Reward.countDocuments({ shop: SHOP, name: { $regex: `^${PREFIX}` } }),
+    ids.length ? Reward.countDocuments({ _id: { $in: ids } }) : 0,
+    ids.length ? ShopifySyncJob.countDocuments({ shop: SHOP, aggregateId: { $in: ids } }) : 0,
+  ]);
+  assert.equal(namedRewards, 0, "all integration Reward fixtures must be removed");
+  assert.equal(rewardsById, 0, "all tracked integration Reward IDs must be removed");
+  assert.equal(jobsByAggregate, 0, "all integration ShopifySyncJob fixtures must be removed");
 }
 
 if (!RUN) {
@@ -36,14 +58,20 @@ if (!RUN) {
     validateShopifyAdminConfiguration(SHOP);
     await mongoose.connect(MONGO, { dbName: DB, serverSelectionTimeoutMS: 10000 });
     await Promise.all([Reward.deleteMany({ shop: SHOP, name: { $regex: `^${PREFIX}` } }), ShopifySyncJob.deleteMany({ shop: SHOP })]);
+
+    const discountIds = new Set();
+    const rewardIds = new Set();
     let discountId;
+    let testFailure;
+
     try {
       await t.test("FTR-SYNC-INT-001 create", async () => {
         const reward = await Reward.create({ shop: SHOP, name: `${PREFIX} create`, type: "FIXED_DISCOUNT", enabled: true, pointsCost: 500, discountValue: 5, minimumSpend: 0, version: 1, shopifySync: { desiredVersion: 1, syncedVersion: 0, status: "PENDING" } });
+        rewardIds.add(reward._id);
         await enqueueRewardSync(reward); await drain();
         const current = await reload(reward._id);
         assert.equal(current.shopifySync.status, "SYNCED"); assert.equal(current.shopifySync.syncedVersion, 1); assert.ok(current.shopifySync.discountId);
-        discountId = current.shopifySync.discountId;
+        discountId = current.shopifySync.discountId; discountIds.add(discountId);
         const remote = await queryDiscount(discountId); assert.ok(remote); assert.equal(remote.status, "ACTIVE");
         const config = JSON.parse(remote.metafield.value); assert.equal(config.rewardId, String(reward._id)); assert.equal(config.rewardVersion, 1); assert.equal(config.discountValue, 5);
       });
@@ -75,18 +103,46 @@ if (!RUN) {
 
       await t.test("FTR-SYNC-INT-005 GraphQL failure is retained and recoverable", async () => {
         const reward = await Reward.create({ shop: SHOP, name: `${PREFIX} failure`, type: "FIXED_DISCOUNT", enabled: true, pointsCost: 700, discountValue: 7, version: 1, shopifySync: { desiredVersion: 1, syncedVersion: 0, status: "PENDING" } });
+        rewardIds.add(reward._id);
         const original = process.env.SHOPIFY_REWARDS_FUNCTION_ID;
-        process.env.SHOPIFY_REWARDS_FUNCTION_ID = "00000000-0000-0000-0000-000000000000";
-        await enqueueRewardSync(reward); await processRewardSyncJobs(20);
-        let failed = await reload(reward._id); assert.notEqual(failed.shopifySync.status, "SYNCED"); assert.ok(failed.shopifySync.lastError);
-        process.env.SHOPIFY_REWARDS_FUNCTION_ID = original;
-        await ShopifySyncJob.updateMany({ shop: SHOP, aggregateId: reward._id, status: { $in: ["PENDING", "FAILED"] } }, { $set: { status: "PENDING", nextAttemptAt: new Date() } });
-        await drain(); failed = await reload(reward._id); assert.equal(failed.shopifySync.status, "SYNCED"); assert.equal(failed.shopifySync.syncedVersion, 1); await cleanupDiscount(failed.shopifySync.discountId);
+        try {
+          process.env.SHOPIFY_REWARDS_FUNCTION_ID = "00000000-0000-0000-0000-000000000000";
+          await enqueueRewardSync(reward); await processRewardSyncJobs(20);
+          let failed = await reload(reward._id); assert.notEqual(failed.shopifySync.status, "SYNCED"); assert.ok(failed.shopifySync.lastError);
+          process.env.SHOPIFY_REWARDS_FUNCTION_ID = original;
+          await ShopifySyncJob.updateMany({ shop: SHOP, aggregateId: reward._id, status: { $in: ["PENDING", "FAILED"] } }, { $set: { status: "PENDING", nextAttemptAt: new Date() } });
+          await drain(); failed = await reload(reward._id); assert.equal(failed.shopifySync.status, "SYNCED"); assert.equal(failed.shopifySync.syncedVersion, 1);
+          assert.ok(failed.shopifySync.discountId); discountIds.add(failed.shopifySync.discountId);
+        } finally {
+          process.env.SHOPIFY_REWARDS_FUNCTION_ID = original;
+        }
       });
+    } catch (error) {
+      testFailure = error;
     } finally {
-      await cleanupDiscount(discountId);
-      await Promise.all([Reward.deleteMany({ shop: SHOP, name: { $regex: `^${PREFIX}` } }), ShopifySyncJob.deleteMany({ shop: SHOP })]);
+      const cleanupErrors = [];
+      for (const id of discountIds) {
+        try { await cleanupDiscount(id); } catch (error) { cleanupErrors.push(error); }
+      }
+      try {
+        await Promise.all([
+          Reward.deleteMany({ shop: SHOP, name: { $regex: `^${PREFIX}` } }),
+          ShopifySyncJob.deleteMany({ shop: SHOP, aggregateId: { $in: [...rewardIds] } }),
+        ]);
+      } catch (error) { cleanupErrors.push(error); }
+
+      for (const id of discountIds) {
+        try { await assertRemoteDiscountRemoved(id); } catch (error) { cleanupErrors.push(error); }
+      }
+      try { await assertMongoFixturesRemoved(rewardIds); } catch (error) { cleanupErrors.push(error); }
       await mongoose.disconnect();
+
+      if (cleanupErrors.length) {
+        const cleanupError = new AggregateError(cleanupErrors, `Integration cleanup verification failed (${cleanupErrors.length} assertion/error${cleanupErrors.length === 1 ? "" : "s"})`);
+        if (testFailure) throw new AggregateError([testFailure, cleanupError], "Integration test and cleanup verification both failed");
+        throw cleanupError;
+      }
+      if (testFailure) throw testFailure;
     }
   });
 }
