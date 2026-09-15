@@ -17,7 +17,14 @@ async function ruleEligible({rule,shop,customer,amount,metadata}){
   const requiredTags=strings(c.customerTags).map(x=>x.toLowerCase());
   if(requiredTags.length){const tags=Array.isArray(customer?.tags)?customer.tags:String(customer?.tags||"").split(",");const actual=new Set(tags.map(x=>String(x).trim().toLowerCase()).filter(Boolean));if(!requiredTags.some(x=>actual.has(x)))return false;}
   if(strings(c.productIds).length&&!intersects(c.productIds,metadata?.productIds))return false;
-  if(strings(c.collectionIds).length&&!intersects(c.collectionIds,metadata?.collectionIds))return false;
+  // Order webhooks contain product IDs, not collection IDs. The admin stores a
+  // product-membership snapshot for selected collections so collection rules can
+  // be evaluated against the order line items without trusting client input.
+  if(strings(c.collectionIds).length){
+    const directCollectionMatch=intersects(c.collectionIds,metadata?.collectionIds);
+    const productMembershipMatch=intersects(c.collectionProductIds,metadata?.productIds);
+    if(!directCollectionMatch&&!productMembershipMatch)return false;
+  }
   const max=Number(c.maxAwardsPerCustomer||0);
   if(max>0){const count=await PointsTransaction.countDocuments({shop,shopifyCustomerId:String(customer.id),type:"EARN","metadata.ruleId":String(rule._id)});if(count>=max)return false;}
   return true;
