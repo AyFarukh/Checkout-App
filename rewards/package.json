@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "test:admin-acceptance": "node --test test/admin-webhook.acceptance.test.js"
+    "test:admin-acceptance": "node --test test/admin-webhook.acceptance.test.js",
+    "test:shopify-sync": "node --test test/shopify-sync.unit.test.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
