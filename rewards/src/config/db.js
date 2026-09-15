@@ -1,32 +1,6 @@
 import mongoose from "mongoose";
-
-let connectionPromise;
-
-export async function connectDatabase() {
-  if (mongoose.connection.readyState === 1) return mongoose.connection;
-  if (connectionPromise) return connectionPromise;
-
-  const uri = process.env.MONGODB_URI;
-  if (!uri) throw new Error("MONGODB_URI is required");
-
-  connectionPromise = mongoose
-    .connect(uri, {
-      dbName: process.env.MONGODB_DB_NAME || "freetheroot_rewards",
-      serverSelectionTimeoutMS: 5000,
-    })
-    .then(() => mongoose.connection)
-    .catch((error) => {
-      connectionPromise = undefined;
-      throw error;
-    });
-
-  return connectionPromise;
-}
-
-export function databaseHealth() {
-  const states = ["disconnected", "connected", "connecting", "disconnecting"];
-  return {
-    readyState: mongoose.connection.readyState,
-    status: states[mongoose.connection.readyState] || "unknown",
-  };
-}
+let connectionPromise;let retryTimer;
+export async function connectDatabase(){if(mongoose.connection.readyState===1)return mongoose.connection;if(connectionPromise)return connectionPromise;const uri=process.env.MONGODB_URI;if(!uri)throw new Error("MONGODB_URI is required");connectionPromise=mongoose.connect(uri,{dbName:process.env.MONGODB_DB_NAME||"freetheroot_rewards",serverSelectionTimeoutMS:5000}).then(()=>{console.log("[Rewards DB] connected");return mongoose.connection}).catch(error=>{connectionPromise=undefined;throw error});return connectionPromise}
+export function connectDatabaseWithRetry(){connectDatabase().catch(error=>{console.error("[Rewards DB] connection failed; retrying",error.message);clearTimeout(retryTimer);retryTimer=setTimeout(connectDatabaseWithRetry,5000)})}
+export function requireDatabase(req,res,next){if(mongoose.connection.readyState!==1)return res.status(503).json({error:"Rewards database is temporarily unavailable"});next()}
+export function databaseHealth(){const states=["disconnected","connected","connecting","disconnecting"];return{readyState:mongoose.connection.readyState,status:states[mongoose.connection.readyState]||"unknown"}}
