@@ -9,6 +9,7 @@ import { adminApi } from "./routes/adminApi.js";
 import { webhookRouter } from "./routes/webhooks.js";
 import { processRewardSyncJobs } from "./services/shopify-sync.service.js";
 import { releaseExpiredRedemptions } from "./services/redemption.service.js";
+import { processWebhookJobs } from "./services/webhook-worker.service.js";
 import { errorHandler, requestId } from "./middleware/errorHandler.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -16,6 +17,7 @@ const __dirname = path.dirname(__filename);
 const publicDir = path.resolve(__dirname, "../public");
 const app = express();
 const port = Number(process.env.PORT || process.env.FRONTEND_PORT || 3100);
+let workersRunning = false;
 
 app.disable("x-powered-by");
 app.use(requestId);
@@ -26,25 +28,16 @@ app.use(express.static(publicDir, { index: false }));
 
 app.get("/health", (_req, res) => {
   const database = databaseHealth();
-  res.status(database.status === "connected" ? 200 : 503).json({
-    ok: database.status === "connected",
-    service: "freetheroot-rewards-admin",
-    database,
-  });
+  res.status(database.status === "connected" ? 200 : 503).json({ ok: database.status === "connected", service: "freetheroot-rewards-admin", database });
 });
 
 app.use("/api/admin", requireDatabase, adminApi);
-
 app.get(/^(?!\/api\/|\/health$|\/webhooks\/).*/, async (_req, res, next) => {
   try {
     const template = await fs.readFile(path.join(publicDir, "index.html"), "utf8");
-    const apiKey = process.env.SHOPIFY_API_KEY || "";
-    res.type("html").send(template.replaceAll("%SHOPIFY_API_KEY%", apiKey));
-  } catch (error) {
-    next(error);
-  }
+    res.type("html").send(template.replaceAll("%SHOPIFY_API_KEY%", process.env.SHOPIFY_API_KEY || ""));
+  } catch (error) { next(error); }
 });
-
 app.use(errorHandler);
 
 app.listen(port, "0.0.0.0", () => {
@@ -52,8 +45,16 @@ app.listen(port, "0.0.0.0", () => {
   connectDatabaseWithRetry();
 });
 
-setInterval(() => {
-  if (databaseHealth().status !== "connected") return;
-  processRewardSyncJobs().catch((error) => console.error("[Rewards Sync Worker]", error));
-  releaseExpiredRedemptions().catch((error) => console.error("[Rewards Redemption Worker]", error));
+setInterval(async () => {
+  if (databaseHealth().status !== "connected" || workersRunning) return;
+  workersRunning = true;
+  try {
+    await processWebhookJobs();
+    await processRewardSyncJobs();
+    await releaseExpiredRedemptions();
+  } catch (error) {
+    console.error("[Rewards Worker]", error);
+  } finally {
+    workersRunning = false;
+  }
 }, 5000).unref();
