@@ -1,19 +1,29 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 
 const BASE_URL = process.env.REWARDS_ACCEPTANCE_BASE_URL || "http://127.0.0.1:3100";
 const TOKEN_A = process.env.REWARDS_ACCEPTANCE_ADMIN_TOKEN_A;
 const TOKEN_B = process.env.REWARDS_ACCEPTANCE_ADMIN_TOKEN_B;
 const DEAD_EVENT_A = process.env.REWARDS_ACCEPTANCE_DEAD_EVENT_A;
 const DEAD_EVENT_B = process.env.REWARDS_ACCEPTANCE_DEAD_EVENT_B;
+const RESULT_DIR = process.env.REWARDS_ACCEPTANCE_RESULT_DIR || path.resolve("test-results");
+const CONCURRENCY_RESULT_FILE = path.join(RESULT_DIR, "FTR-ADM-WH-011.json");
 
 function requireFixture(name, value) {
   if (!value) throw new Error(`${name} is required for admin acceptance tests`);
   return value;
 }
 
-async function request(path, { token = TOKEN_A, method = "GET", headers = {}, body } = {}) {
-  const response = await fetch(`${BASE_URL}${path}`, {
+function writeConcurrencyResult(payload) {
+  fs.mkdirSync(RESULT_DIR, { recursive: true });
+  fs.writeFileSync(CONCURRENCY_RESULT_FILE, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  console.log(`FTR_MACHINE_RESULT=${JSON.stringify(payload)}`);
+}
+
+async function request(pathname, { token = TOKEN_A, method = "GET", headers = {}, body } = {}) {
+  const response = await fetch(`${BASE_URL}${pathname}`, {
     method,
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -98,16 +108,41 @@ test("DEAD webhook admin acceptance", async (t) => {
     assert.deepEqual(second.json?.data, first.json?.data);
   });
 
-  await t.test("only one concurrent retry performs the DEAD to PENDING transition", async () => {
+  await t.test("FTR-ADM-WH-011 only one concurrent retry performs the DEAD to PENDING transition", async () => {
     const keyA = `concurrent-a-${Date.now()}`;
     const keyB = `concurrent-b-${Date.now()}`;
-    const path = `/api/admin/webhooks/dead/${DEAD_EVENT_B}/retry`;
+    const requestPath = `/api/admin/webhooks/dead/${DEAD_EVENT_B}/retry`;
     const [a, b] = await Promise.all([
-      request(path, { method: "POST", headers: { "Idempotency-Key": keyA }, body: {} }),
-      request(path, { method: "POST", headers: { "Idempotency-Key": keyB }, body: {} }),
+      request(requestPath, { method: "POST", headers: { "Idempotency-Key": keyA }, body: {} }),
+      request(requestPath, { method: "POST", headers: { "Idempotency-Key": keyB }, body: {} }),
     ]);
-    const statuses = [a.response.status, b.response.status].sort((x, y) => x - y);
-    assert.deepEqual(statuses, [202, 409]);
+
+    const responseStatuses = [a.response.status, b.response.status];
+    const sortedStatuses = [...responseStatuses].sort((x, y) => x - y);
+    const duplicateAccepted = responseStatuses[0] === 202 && responseStatuses[1] === 202;
+    const passed = !duplicateAccepted && sortedStatuses[0] === 202 && sortedStatuses[1] === 409;
+    const result = {
+      testId: "FTR-ADM-WH-011",
+      responseStatuses,
+      sortedStatuses,
+      duplicateAccepted,
+      expectedStatuses: [202, 409],
+      result: passed ? "PASS" : "FAIL",
+      generatedAt: new Date().toISOString(),
+    };
+    writeConcurrencyResult(result);
+
+    assert.equal(
+      duplicateAccepted,
+      false,
+      `FTR-ADM-WH-011 FAIL: concurrent retries returned 202 + 202`,
+    );
+    assert.deepEqual(
+      sortedStatuses,
+      [202, 409],
+      `FTR-ADM-WH-011 FAIL: expected exactly 202 + 409; received ${sortedStatuses.join(" + ")}`,
+    );
+
     const conflict = a.response.status === 409 ? a : b;
     assert.ok(["WEBHOOK_STATE_CHANGED", "WEBHOOK_NOT_RETRYABLE"].includes(conflict.json?.error?.code));
     assert.equal(typeof conflict.json?.meta?.requestId, "string");
