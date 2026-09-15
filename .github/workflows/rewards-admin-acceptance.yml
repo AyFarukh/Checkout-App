@@ -38,7 +38,6 @@ jobs:
     timeout-minutes: 10
     env:
       NODE_ENV: test
-      # Synthetic values only. Unit tests must never use a live Shopify store.
       SHOPIFY_ADMIN_ACCESS_TOKEN: test-offline-token
       SHOPIFY_REWARDS_FUNCTION_ID: 11111111-1111-1111-1111-111111111111
     steps:
@@ -46,9 +45,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: Install rewards dependencies
+      - name: Verify rewards lockfile is committed
+        run: |
+          set -euo pipefail
+          test -f rewards/package-lock.json || { echo "::error::rewards/package-lock.json is required for reproducible CI"; exit 1; }
+      - name: Install rewards dependencies and verify lockfile integrity
         working-directory: rewards
-        run: npm install --no-audit --no-fund
+        run: |
+          set -euo pipefail
+          before=$(sha256sum package-lock.json | awk '{print $1}')
+          npm ci --no-audit --no-fund
+          after=$(sha256sum package-lock.json | awk '{print $1}')
+          [ "$before" = "$after" ] || { echo "::error::npm ci modified rewards/package-lock.json"; git diff -- package-lock.json; exit 1; }
+          git diff --exit-code -- package-lock.json || { echo "::error::rewards/package-lock.json changed during npm ci"; exit 1; }
       - name: Run unit acceptance IDs
         working-directory: rewards
         run: npm test
@@ -83,6 +92,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+      - name: Verify rewards lockfile is committed
+        run: |
+          set -euo pipefail
+          test -f rewards/package-lock.json || { echo "::error::rewards/package-lock.json is required for reproducible CI"; exit 1; }
       - name: Validate acceptance secrets
         run: |
           set -euo pipefail
@@ -106,9 +119,15 @@ jobs:
           done
           docker logs ftr-mongodb
           exit 1
-      - name: Install rewards dependencies
+      - name: Install rewards dependencies and verify lockfile integrity
         working-directory: rewards
-        run: npm install --no-audit --no-fund
+        run: |
+          set -euo pipefail
+          before=$(sha256sum package-lock.json | awk '{print $1}')
+          npm ci --no-audit --no-fund
+          after=$(sha256sum package-lock.json | awk '{print $1}')
+          [ "$before" = "$after" ] || { echo "::error::npm ci modified rewards/package-lock.json"; git diff -- package-lock.json; exit 1; }
+          git diff --exit-code -- package-lock.json || { echo "::error::rewards/package-lock.json changed during npm ci"; exit 1; }
       - name: Start rewards server
         working-directory: rewards
         run: |
@@ -187,6 +206,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+      - name: Verify rewards lockfile is committed
+        run: |
+          set -euo pipefail
+          test -f rewards/package-lock.json || { echo "::error::rewards/package-lock.json is required for reproducible CI"; exit 1; }
       - name: Validate live Shopify secrets
         run: |
           set -euo pipefail
@@ -210,9 +233,15 @@ jobs:
             sleep 1
           done
           exit 1
-      - name: Install rewards dependencies
+      - name: Install rewards dependencies and verify lockfile integrity
         working-directory: rewards
-        run: npm install --no-audit --no-fund
+        run: |
+          set -euo pipefail
+          before=$(sha256sum package-lock.json | awk '{print $1}')
+          npm ci --no-audit --no-fund
+          after=$(sha256sum package-lock.json | awk '{print $1}')
+          [ "$before" = "$after" ] || { echo "::error::npm ci modified rewards/package-lock.json"; git diff -- package-lock.json; exit 1; }
+          git diff --exit-code -- package-lock.json || { echo "::error::rewards/package-lock.json changed during npm ci"; exit 1; }
       - name: Gate required live FTR IDs
         working-directory: rewards
         run: |
