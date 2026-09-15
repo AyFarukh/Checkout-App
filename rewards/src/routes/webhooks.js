@@ -1,10 +1,50 @@
 import crypto from "node:crypto";
 import { Router } from "express";
-import { awardForAction, reverseForRefund } from "../services/rules.service.js";
+import { WebhookEvent } from "../models/WebhookEvent.js";
 
 export const webhookRouter = Router();
-function verifyWebhook(req){const secret=process.env.SHOPIFY_API_SECRET,hmac=req.get("X-Shopify-Hmac-Sha256")||"";if(!secret||!hmac||!Buffer.isBuffer(req.body))return false;const digest=crypto.createHmac("sha256",secret).update(req.body).digest("base64"),a=Buffer.from(digest),b=Buffer.from(hmac);return a.length===b.length&&crypto.timingSafeEqual(a,b)}function payload(req){return JSON.parse(req.body.toString("utf8"))}function shop(req){return String(req.get("X-Shopify-Shop-Domain")||"").toLowerCase()}
-webhookRouter.use((req,res,next)=>{if(!verifyWebhook(req))return res.status(401).send("Invalid webhook signature");next()});
-webhookRouter.post("/orders-paid",async(req,res,next)=>{try{const order=payload(req),eligibleAmount=Number(order.subtotal_price||order.current_subtotal_price||0),productIds=(order.line_items||[]).map(i=>i.product_id).filter(Boolean).map(String);await awardForAction({shop:shop(req),type:"PURCHASE",customer:order.customer,eventId:order.id,amount:eligibleAmount,source:"SHOPIFY_ORDER_PAID",shopifyOrderId:String(order.id),metadata:{orderName:order.name,eligibleAmount,currency:order.currency,productIds,collectionIds:[],customerOrdersCount:order.customer?.orders_count}});res.status(200).send("OK")}catch(error){next(error)}});
-webhookRouter.post("/customers-create",async(req,res,next)=>{try{const customer=payload(req);await awardForAction({shop:shop(req),type:"ACCOUNT_CREATE",customer,eventId:customer.id,source:"SHOPIFY_CUSTOMER_CREATED"});res.status(200).send("OK")}catch(error){next(error)}});
-webhookRouter.post("/refunds-create",async(req,res,next)=>{try{const refund=payload(req),refundedAmount=(refund.transactions||[]).filter(t=>t.kind==="refund"&&t.status==="success").reduce((sum,t)=>sum+Number(t.amount||0),0);await reverseForRefund({shop:shop(req),orderId:refund.order_id,refundId:refund.id,refundedAmount});res.status(200).send("OK")}catch(error){next(error)}});
+const TOPICS = new Map([
+  ["/orders-paid", "orders/paid"],
+  ["/refunds-create", "refunds/create"],
+  ["/customers-create", "customers/create"],
+]);
+
+function verifyWebhook(req) {
+  const secret = process.env.SHOPIFY_API_SECRET;
+  const hmac = req.get("X-Shopify-Hmac-Sha256") || "";
+  if (!secret || !hmac || !Buffer.isBuffer(req.body)) return false;
+  const digest = crypto.createHmac("sha256", secret).update(req.body).digest("base64");
+  const expected = Buffer.from(digest);
+  const supplied = Buffer.from(hmac);
+  return expected.length === supplied.length && crypto.timingSafeEqual(expected, supplied);
+}
+
+webhookRouter.use((req, res, next) => {
+  if (!verifyWebhook(req)) return res.status(401).send("Invalid webhook signature");
+  next();
+});
+
+webhookRouter.post(["/orders-paid", "/refunds-create", "/customers-create"], async (req, res, next) => {
+  try {
+    const shop = String(req.get("X-Shopify-Shop-Domain") || "").trim().toLowerCase();
+    const webhookId = String(req.get("X-Shopify-Webhook-Id") || "").trim();
+    const apiVersion = String(req.get("X-Shopify-Api-Version") || "").trim();
+    const topic = TOPICS.get(req.path);
+    if (!shop || !webhookId || !topic) return res.status(400).send("Missing Shopify webhook metadata");
+
+    let payload;
+    try { payload = JSON.parse(req.body.toString("utf8")); }
+    catch { return res.status(400).send("Invalid JSON payload"); }
+
+    try {
+      await WebhookEvent.create({ shop, webhookId, topic, apiVersion, payload, status: "PENDING", nextAttemptAt: new Date() });
+    } catch (error) {
+      // Shopify can redeliver the same webhook. The unique (shop, webhookId)
+      // index turns those deliveries into a successful no-op.
+      if (error?.code !== 11000) throw error;
+    }
+    return res.status(200).send("OK");
+  } catch (error) {
+    next(error);
+  }
+});
