@@ -13,10 +13,10 @@ const DEFAULT_RULES = [
 ];
 
 const DEFAULT_REWARDS = [
-  { key: "five_off", name: "$5 off", type: "FIXED_DISCOUNT", enabled: true, pointsCost: 500, discountValue: 5, minimumSpend: 0, conditions: {} },
-  { key: "ten_off", name: "$10 off", type: "FIXED_DISCOUNT", enabled: true, pointsCost: 900, discountValue: 10, minimumSpend: 0, conditions: {} },
-  { key: "ten_percent", name: "10% off", type: "PERCENTAGE_DISCOUNT", enabled: true, pointsCost: 1000, discountValue: 10, minimumSpend: 0, conditions: {} },
-  { key: "free_shipping", name: "Free shipping", type: "FREE_SHIPPING", enabled: true, pointsCost: 750, discountValue: 0, minimumSpend: 0, conditions: {} },
+  { key: "five_off", name: "$5 off", type: "FIXED_DISCOUNT", enabled: true, pointsCost: 500, discountValue: 5, minimumSpend: 0 },
+  { key: "ten_off", name: "$10 off", type: "FIXED_DISCOUNT", enabled: true, pointsCost: 900, discountValue: 10, minimumSpend: 0 },
+  { key: "ten_percent", name: "10% off", type: "PERCENTAGE_DISCOUNT", enabled: true, pointsCost: 1000, discountValue: 10, minimumSpend: 0 },
+  { key: "free_shipping", name: "Free shipping", type: "FREE_SHIPPING", enabled: true, pointsCost: 750, discountValue: 0, minimumSpend: 0 },
 ];
 
 export async function ensureDefaultRewardsProgram(shop) {
@@ -28,19 +28,22 @@ export async function ensureDefaultRewardsProgram(shop) {
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
 
+  // Use schema-defined top-level fields in the upsert filter. Querying a nested
+  // Mixed path (conditions.defaultKey) triggers Mongoose strict-upsert errors.
   for (const rule of DEFAULT_RULES) {
     await EarningRule.findOneAndUpdate(
-      { shop, "conditions.defaultKey": rule.key },
+      { shop, type: rule.type, name: rule.name },
       { $setOnInsert: { ...rule, shop, conditions: { ...rule.conditions, defaultKey: rule.key, seeded: true } } },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }
     );
   }
 
+  // Reward uses `metadata` (not `conditions`) as its Mixed extension field.
   for (const reward of DEFAULT_REWARDS) {
     await Reward.findOneAndUpdate(
-      { shop, "conditions.defaultKey": reward.key },
-      { $setOnInsert: { ...reward, shop, conditions: { ...reward.conditions, defaultKey: reward.key, seeded: true } } },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { shop, type: reward.type, name: reward.name },
+      { $setOnInsert: { ...reward, shop, metadata: { defaultKey: reward.key, seeded: true } } },
+      { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }
     );
   }
 
