@@ -45,6 +45,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: rewards/package-lock.json
       - name: Verify rewards lockfile is committed
         run: |
           set -euo pipefail
@@ -92,6 +94,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: rewards/package-lock.json
       - name: Verify rewards lockfile is committed
         run: |
           set -euo pipefail
@@ -206,6 +210,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: rewards/package-lock.json
       - name: Verify rewards lockfile is committed
         run: |
           set -euo pipefail
