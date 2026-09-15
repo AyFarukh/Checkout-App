@@ -6,6 +6,7 @@ import express from "express";
 import cors from "cors";
 import { connectDatabase, databaseHealth } from "./config/db.js";
 import { adminApi } from "./routes/adminApi.js";
+import { webhookRouter } from "./routes/webhooks.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,6 +16,10 @@ const port = Number(process.env.PORT || process.env.FRONTEND_PORT || 3100);
 
 app.disable("x-powered-by");
 app.use(cors({ origin: false }));
+
+// Shopify webhook HMAC must be verified against the exact raw request bytes.
+app.use("/webhooks", express.raw({ type: "application/json", limit: "1mb" }), webhookRouter);
+
 app.use(express.json({ limit: "256kb" }));
 app.use(express.static(publicDir, { index: false }));
 
@@ -24,14 +29,12 @@ app.get("/health", (_req, res) => {
 
 app.use("/api/admin", adminApi);
 
-app.get(/^(?!\/api\/|\/health$).*/, async (_req, res, next) => {
+app.get(/^(?!\/api\/|\/health$|\/webhooks\/).*/, async (_req, res, next) => {
   try {
     const template = await fs.readFile(path.join(publicDir, "index.html"), "utf8");
     const apiKey = process.env.SHOPIFY_API_KEY || "";
     res.type("html").send(template.replaceAll("%SHOPIFY_API_KEY%", apiKey));
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) { next(error); }
 });
 
 app.use((error, _req, res, _next) => {
@@ -42,9 +45,7 @@ app.use((error, _req, res, _next) => {
 
 async function start() {
   await connectDatabase();
-  app.listen(port, "0.0.0.0", () => {
-    console.log(`[Rewards Admin] embedded app home running on port ${port}`);
-  });
+  app.listen(port, "0.0.0.0", () => console.log(`[Rewards Admin] embedded app home running on port ${port}`));
 }
 
 start().catch((error) => {
