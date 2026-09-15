@@ -8,7 +8,8 @@
     "start": "node src/server.js",
     "test:admin-acceptance": "node --test test/admin-webhook.acceptance.test.js",
     "test:shopify-sync": "node --test test/shopify-sync.unit.test.js",
-    "test": "node --test test/*.test.js"
+    "test:shopify-sync:integration": "SHOPIFY_SYNC_INTEGRATION=1 node --test --test-concurrency=1 test/shopify-sync.integration.test.js",
+    "test": "node --test test/*.unit.test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
