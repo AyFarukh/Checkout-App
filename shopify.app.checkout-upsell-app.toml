@@ -7,7 +7,7 @@ name = "Freetheroots Checkout Events"
 web_directories = ["rewards"]
 
 [access_scopes]
-scopes = "read_products,read_discounts,write_discounts,read_customers"
+scopes = "read_products,read_discounts,write_discounts,read_customers,read_orders"
 
 [access.admin]
 embedded_app_direct_api_access = true
@@ -18,6 +18,18 @@ redirect_urls = [ "https://shopify.dev/apps/default-app-home/api/auth" ]
 
 [webhooks]
 api_version = "2026-10"
+
+[[webhooks.subscriptions]]
+topics = ["orders/paid"]
+uri = "/webhooks/orders-paid"
+
+[[webhooks.subscriptions]]
+topics = ["refunds/create"]
+uri = "/webhooks/refunds-create"
+
+[[webhooks.subscriptions]]
+topics = ["customers/create"]
+uri = "/webhooks/customers-create"
 
 [build]
 automatically_update_urls_on_dev = true
