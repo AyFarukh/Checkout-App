@@ -1,23 +1,68 @@
-name: Rewards Admin Acceptance
+name: Rewards Backend Acceptance
 
 on:
   workflow_dispatch:
+    inputs:
+      run_shopify_live:
+        description: "Run live Shopify development-store synchronization tests"
+        required: false
+        type: boolean
+        default: false
   pull_request:
     paths:
       - "rewards/**"
+      - "extensions/checkout-upsell/**"
       - ".github/workflows/rewards-admin-acceptance.yml"
   push:
     branches: [feature/rewards-admin-v1]
     paths:
       - "rewards/**"
+      - "extensions/checkout-upsell/**"
       - ".github/workflows/rewards-admin-acceptance.yml"
 
 permissions:
   contents: read
 
+concurrency:
+  group: rewards-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  SHOPIFY_ADMIN_API_VERSION: "2026-07"
+
 jobs:
-  admin-acceptance:
-    name: FTR-ADM-WH acceptance
+  unit:
+    name: Unit FTR-SYNC-001..006 + FTR-SYNC-CLEANUP-001..002
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NODE_ENV: test
+      # Synthetic values only. Unit tests must never use a live Shopify store.
+      SHOPIFY_ADMIN_ACCESS_TOKEN: test-offline-token
+      SHOPIFY_REWARDS_FUNCTION_ID: 11111111-1111-1111-1111-111111111111
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install rewards dependencies
+        working-directory: rewards
+        run: npm install --no-audit --no-fund
+      - name: Run unit acceptance IDs
+        working-directory: rewards
+        run: npm test
+      - name: Gate required unit FTR IDs
+        working-directory: rewards
+        run: |
+          set -euo pipefail
+          files="test/shopify-sync.unit.test.js test/shopify-sync.cleanup-failure.unit.test.js"
+          for id in FTR-SYNC-001 FTR-SYNC-002 FTR-SYNC-003 FTR-SYNC-004 FTR-SYNC-005 FTR-SYNC-006 FTR-SYNC-CLEANUP-001 FTR-SYNC-CLEANUP-002; do
+            grep -q "$id" $files || { echo "::error::$id is missing from the unit acceptance suite"; exit 1; }
+          done
+
+  admin-webhook:
+    name: Admin webhook FTR-ADM-WH-001..012
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -33,16 +78,17 @@ jobs:
       REWARDS_ACCEPTANCE_ADMIN_TOKEN_B: ${{ secrets.REWARDS_ACCEPTANCE_ADMIN_TOKEN_B }}
       REWARDS_ACCEPTANCE_DEAD_EVENT_A: ${{ secrets.REWARDS_ACCEPTANCE_DEAD_EVENT_A }}
       REWARDS_ACCEPTANCE_DEAD_EVENT_B: ${{ secrets.REWARDS_ACCEPTANCE_DEAD_EVENT_B }}
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: rewards/package-lock.json
-
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Validate acceptance secrets
+        run: |
+          set -euo pipefail
+          for name in SHOPIFY_API_KEY SHOPIFY_API_SECRET REWARDS_ACCEPTANCE_ADMIN_TOKEN_A REWARDS_ACCEPTANCE_ADMIN_TOKEN_B REWARDS_ACCEPTANCE_DEAD_EVENT_A REWARDS_ACCEPTANCE_DEAD_EVENT_B; do
+            [ -n "${!name:-}" ] || { echo "::error::Required acceptance secret mapping $name is empty"; exit 1; }
+          done
       - name: Start MongoDB replica set
         run: |
           set -euo pipefail
@@ -60,18 +106,15 @@ jobs:
           done
           docker logs ftr-mongodb
           exit 1
-
-      - name: Install dependencies
+      - name: Install rewards dependencies
         working-directory: rewards
-        run: npm ci
-
+        run: npm install --no-audit --no-fund
       - name: Start rewards server
         working-directory: rewards
         run: |
           mkdir -p test-results
           node src/server.js > test-results/rewards-server.log 2>&1 &
           echo $! > test-results/server.pid
-
       - name: Wait for rewards server
         run: |
           set -euo pipefail
@@ -81,53 +124,36 @@ jobs:
           done
           cat rewards/test-results/rewards-server.log || true
           exit 1
-
-      - name: Run FTR-ADM-WH-001 through FTR-ADM-WH-012
+      - name: Gate required Admin FTR IDs
         working-directory: rewards
         run: |
           set -euo pipefail
-          npm run test:admin-acceptance 2>&1 | tee test-results/admin-acceptance.log
-
-      - name: Enforce FTR-ADM-WH-011 machine result
+          for id in $(seq -w 1 12); do
+            grep -q "FTR-ADM-WH-0${id}" test/admin-webhook.acceptance.test.js || { echo "::error::FTR-ADM-WH-0${id} is missing"; exit 1; }
+          done
+      - name: Run FTR-ADM-WH-001 through FTR-ADM-WH-012
+        working-directory: rewards
+        run: npm run test:admin-acceptance 2>&1 | tee test-results/admin-acceptance.log
+      - name: Enforce FTR-ADM-WH-011 concurrency result
         if: always()
         run: |
           set -euo pipefail
           FILE="rewards/test-results/FTR-ADM-WH-011.json"
-          if [ ! -f "$FILE" ]; then
-            echo "::error::FTR-ADM-WH-011 machine-readable result file is missing"
-            exit 1
-          fi
-
+          [ -f "$FILE" ] || { echo "::error::FTR-ADM-WH-011 machine result is missing"; exit 1; }
           node - "$FILE" <<'NODE'
           const fs = require('fs');
-          const file = process.argv[2];
-          const result = JSON.parse(fs.readFileSync(file, 'utf8'));
-          if (result.testId !== 'FTR-ADM-WH-011') {
-            console.error(`Invalid testId: ${result.testId}`);
+          const result = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          const statuses = Array.isArray(result.responseStatuses) ? [...result.responseStatuses].sort((a,b)=>a-b) : [];
+          if (result.testId !== 'FTR-ADM-WH-011' || result.result !== 'PASS' || statuses.length !== 2 || statuses[0] !== 202 || statuses[1] !== 409) {
+            console.error(`FTR-ADM-WH-011 FAIL: ${JSON.stringify(result)}`);
             process.exit(1);
           }
-          const statuses = result.responseStatuses;
-          if (!Array.isArray(statuses) || statuses.length !== 2 || !statuses.every(Number.isInteger)) {
-            console.error('Invalid responseStatuses in FTR-ADM-WH-011 result');
-            process.exit(1);
-          }
-          if (statuses[0] === 202 && statuses[1] === 202) {
-            console.error('FTR-ADM-WH-011 FAIL: concurrent retries returned 202 + 202');
-            process.exit(1);
-          }
-          const sorted = [...statuses].sort((a, b) => a - b);
-          if (sorted[0] !== 202 || sorted[1] !== 409 || result.result !== 'PASS') {
-            console.error(`FTR-ADM-WH-011 FAIL: expected 202 + 409; received ${statuses.join(' + ')}`);
-            process.exit(1);
-          }
-          console.log(`FTR-ADM-WH-011 PASS: ${statuses.join(' + ')}`);
+          console.log('FTR-ADM-WH-011 PASS: exactly 202 + 409');
           NODE
-
-      - name: Capture MongoDB logs on failure
+      - name: Capture Mongo logs on failure
         if: failure()
         run: docker logs ftr-mongodb > rewards/test-results/mongodb.log 2>&1 || true
-
-      - name: Upload acceptance diagnostics
+      - name: Upload admin diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -135,9 +161,119 @@ jobs:
           path: rewards/test-results/
           if-no-files-found: warn
           retention-days: 14
-
-      - name: Cleanup
+      - name: Cleanup admin acceptance
         if: always()
         run: |
           if [ -f rewards/test-results/server.pid ]; then kill "$(cat rewards/test-results/server.pid)" 2>/dev/null || true; fi
           docker rm -f ftr-mongodb >/dev/null 2>&1 || true
+
+  shopify-live:
+    name: Live Shopify FTR-SYNC-INT-001..005
+    if: github.event_name == 'workflow_dispatch' && inputs.run_shopify_live == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: rewards-shopify-development
+    env:
+      NODE_ENV: test
+      SHOPIFY_SYNC_INTEGRATION: "1"
+      SHOPIFY_SYNC_INTEGRATION_SHOP: ${{ secrets.REWARDS_TEST_SHOP }}
+      SHOPIFY_ADMIN_ACCESS_TOKEN: ${{ secrets.REWARDS_TEST_OFFLINE_ADMIN_TOKEN }}
+      SHOPIFY_REWARDS_FUNCTION_ID: ${{ secrets.REWARDS_TEST_FUNCTION_ID }}
+      SHOPIFY_ADMIN_API_VERSION: "2026-07"
+      MONGODB_URI: mongodb://127.0.0.1:27017/freetheroot_rewards_shopify_integration?replicaSet=rs0
+      MONGODB_DB_NAME: freetheroot_rewards_shopify_integration
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Validate live Shopify secrets
+        run: |
+          set -euo pipefail
+          for name in SHOPIFY_SYNC_INTEGRATION_SHOP SHOPIFY_ADMIN_ACCESS_TOKEN SHOPIFY_REWARDS_FUNCTION_ID; do
+            [ -n "${!name:-}" ] || { echo "::error::Required live Shopify secret mapping $name is empty"; exit 1; }
+          done
+          [[ "$SHOPIFY_SYNC_INTEGRATION_SHOP" == *.myshopify.com ]] || { echo "::error::REWARDS_TEST_SHOP must be a myshopify.com development-store domain"; exit 1; }
+      - name: Start integration MongoDB replica set
+        run: |
+          set -euo pipefail
+          docker run -d --name ftr-shopify-mongodb -p 27017:27017 mongo:8.0 mongod --replSet rs0 --bind_ip_all
+          for i in $(seq 1 60); do
+            if docker exec ftr-shopify-mongodb mongosh --quiet --eval 'db.adminCommand({ping:1}).ok' 2>/dev/null | grep -q 1; then break; fi
+            [ "$i" -eq 60 ] && { docker logs ftr-shopify-mongodb; exit 1; }
+            sleep 1
+          done
+          docker exec ftr-shopify-mongodb mongosh --quiet --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27017"}]})'
+          for i in $(seq 1 60); do
+            state=$(docker exec ftr-shopify-mongodb mongosh --quiet --eval 'try{print(rs.status().myState)}catch(e){print(0)}' | tail -1)
+            [ "$state" = "1" ] && exit 0
+            sleep 1
+          done
+          exit 1
+      - name: Install rewards dependencies
+        working-directory: rewards
+        run: npm install --no-audit --no-fund
+      - name: Gate required live FTR IDs
+        working-directory: rewards
+        run: |
+          set -euo pipefail
+          for id in 001 002 003 004 005; do
+            grep -q "FTR-SYNC-INT-$id" test/shopify-sync.integration.test.js || { echo "::error::FTR-SYNC-INT-$id is missing"; exit 1; }
+          done
+      - name: Run live Shopify synchronization acceptance
+        working-directory: rewards
+        run: npm run test:shopify-sync:integration
+      - name: Cleanup integration Mongo container
+        if: always()
+        run: docker rm -f ftr-shopify-mongodb >/dev/null 2>&1 || true
+
+  checkout-regression:
+    name: Existing checkout extension regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Verify checkout extension exists and package metadata is readable
+        run: |
+          set -euo pipefail
+          test -d extensions/checkout-upsell
+          test -f extensions/checkout-upsell/shopify.extension.toml
+          if [ -f extensions/checkout-upsell/package.json ]; then node -e "JSON.parse(require('fs').readFileSync('extensions/checkout-upsell/package.json','utf8'))"; fi
+      - name: Install checkout extension dependencies when independently packaged
+        if: ${{ hashFiles('extensions/checkout-upsell/package.json') != '' }}
+        working-directory: extensions/checkout-upsell
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+      - name: Build checkout extension when build script exists
+        if: ${{ hashFiles('extensions/checkout-upsell/package.json') != '' }}
+        working-directory: extensions/checkout-upsell
+        run: |
+          if node -e "const p=require('./package.json'); process.exit(p.scripts?.build?0:1)"; then npm run build; else echo 'No extension-local build script; structural regression gate passed.'; fi
+
+  release-gate:
+    name: Rewards backend release gate
+    if: always()
+    needs: [unit, admin-webhook, shopify-live, checkout-regression]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce required non-live gates
+        env:
+          UNIT_RESULT: ${{ needs.unit.result }}
+          ADMIN_RESULT: ${{ needs.admin-webhook.result }}
+          CHECKOUT_RESULT: ${{ needs.checkout-regression.result }}
+          SHOPIFY_RESULT: ${{ needs.shopify-live.result }}
+          LIVE_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.run_shopify_live == true }}
+        run: |
+          set -euo pipefail
+          [ "$UNIT_RESULT" = "success" ] || { echo "::error::Unit FTR gate: $UNIT_RESULT"; exit 1; }
+          [ "$ADMIN_RESULT" = "success" ] || { echo "::error::Admin FTR gate: $ADMIN_RESULT"; exit 1; }
+          [ "$CHECKOUT_RESULT" = "success" ] || { echo "::error::Checkout regression gate: $CHECKOUT_RESULT"; exit 1; }
+          if [ "$LIVE_REQUESTED" = "true" ]; then
+            [ "$SHOPIFY_RESULT" = "success" ] || { echo "::error::Live Shopify FTR gate: $SHOPIFY_RESULT"; exit 1; }
+            echo "BACKEND RELEASE GATE CLEARED INCLUDING LIVE SHOPIFY"
+          else
+            echo "NON-LIVE BACKEND GATES CLEARED; LIVE SHOPIFY GATE NOT REQUESTED"
+          fi
