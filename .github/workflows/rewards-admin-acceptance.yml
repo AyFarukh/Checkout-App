@@ -1,0 +1,143 @@
+name: Rewards Admin Acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "rewards/**"
+      - ".github/workflows/rewards-admin-acceptance.yml"
+  push:
+    branches: [feature/rewards-admin-v1]
+    paths:
+      - "rewards/**"
+      - ".github/workflows/rewards-admin-acceptance.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  admin-acceptance:
+    name: FTR-ADM-WH acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_ENV: test
+      PORT: "3100"
+      MONGODB_URI: mongodb://127.0.0.1:27017/freetheroot_rewards_acceptance?replicaSet=rs0
+      MONGODB_DB_NAME: freetheroot_rewards_acceptance
+      REWARDS_ACCEPTANCE_BASE_URL: http://127.0.0.1:3100
+      REWARDS_ACCEPTANCE_RESULT_DIR: ${{ github.workspace }}/rewards/test-results
+      SHOPIFY_API_KEY: ${{ secrets.REWARDS_TEST_SHOPIFY_API_KEY }}
+      SHOPIFY_API_SECRET: ${{ secrets.REWARDS_TEST_SHOPIFY_API_SECRET }}
+      REWARDS_ACCEPTANCE_ADMIN_TOKEN_A: ${{ secrets.REWARDS_ACCEPTANCE_ADMIN_TOKEN_A }}
+      REWARDS_ACCEPTANCE_ADMIN_TOKEN_B: ${{ secrets.REWARDS_ACCEPTANCE_ADMIN_TOKEN_B }}
+      REWARDS_ACCEPTANCE_DEAD_EVENT_A: ${{ secrets.REWARDS_ACCEPTANCE_DEAD_EVENT_A }}
+      REWARDS_ACCEPTANCE_DEAD_EVENT_B: ${{ secrets.REWARDS_ACCEPTANCE_DEAD_EVENT_B }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: rewards/package-lock.json
+
+      - name: Start MongoDB replica set
+        run: |
+          set -euo pipefail
+          docker run -d --name ftr-mongodb -p 27017:27017 mongo:8.0 mongod --replSet rs0 --bind_ip_all
+          for i in $(seq 1 60); do
+            if docker exec ftr-mongodb mongosh --quiet --eval 'db.adminCommand({ping:1}).ok' 2>/dev/null | grep -q 1; then break; fi
+            [ "$i" -eq 60 ] && { docker logs ftr-mongodb; exit 1; }
+            sleep 1
+          done
+          docker exec ftr-mongodb mongosh --quiet --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27017"}]})'
+          for i in $(seq 1 60); do
+            state=$(docker exec ftr-mongodb mongosh --quiet --eval 'try{print(rs.status().myState)}catch(e){print(0)}' | tail -1)
+            [ "$state" = "1" ] && exit 0
+            sleep 1
+          done
+          docker logs ftr-mongodb
+          exit 1
+
+      - name: Install dependencies
+        working-directory: rewards
+        run: npm ci
+
+      - name: Start rewards server
+        working-directory: rewards
+        run: |
+          mkdir -p test-results
+          node src/server.js > test-results/rewards-server.log 2>&1 &
+          echo $! > test-results/server.pid
+
+      - name: Wait for rewards server
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            if curl -fsS "$REWARDS_ACCEPTANCE_BASE_URL/health" >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat rewards/test-results/rewards-server.log || true
+          exit 1
+
+      - name: Run FTR-ADM-WH-001 through FTR-ADM-WH-012
+        working-directory: rewards
+        run: |
+          set -euo pipefail
+          npm run test:admin-acceptance 2>&1 | tee test-results/admin-acceptance.log
+
+      - name: Enforce FTR-ADM-WH-011 machine result
+        if: always()
+        run: |
+          set -euo pipefail
+          FILE="rewards/test-results/FTR-ADM-WH-011.json"
+          if [ ! -f "$FILE" ]; then
+            echo "::error::FTR-ADM-WH-011 machine-readable result file is missing"
+            exit 1
+          fi
+
+          node - "$FILE" <<'NODE'
+          const fs = require('fs');
+          const file = process.argv[2];
+          const result = JSON.parse(fs.readFileSync(file, 'utf8'));
+          if (result.testId !== 'FTR-ADM-WH-011') {
+            console.error(`Invalid testId: ${result.testId}`);
+            process.exit(1);
+          }
+          const statuses = result.responseStatuses;
+          if (!Array.isArray(statuses) || statuses.length !== 2 || !statuses.every(Number.isInteger)) {
+            console.error('Invalid responseStatuses in FTR-ADM-WH-011 result');
+            process.exit(1);
+          }
+          if (statuses[0] === 202 && statuses[1] === 202) {
+            console.error('FTR-ADM-WH-011 FAIL: concurrent retries returned 202 + 202');
+            process.exit(1);
+          }
+          const sorted = [...statuses].sort((a, b) => a - b);
+          if (sorted[0] !== 202 || sorted[1] !== 409 || result.result !== 'PASS') {
+            console.error(`FTR-ADM-WH-011 FAIL: expected 202 + 409; received ${statuses.join(' + ')}`);
+            process.exit(1);
+          }
+          console.log(`FTR-ADM-WH-011 PASS: ${statuses.join(' + ')}`);
+          NODE
+
+      - name: Capture MongoDB logs on failure
+        if: failure()
+        run: docker logs ftr-mongodb > rewards/test-results/mongodb.log 2>&1 || true
+
+      - name: Upload acceptance diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rewards-admin-acceptance-${{ github.run_id }}
+          path: rewards/test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Cleanup
+        if: always()
+        run: |
+          if [ -f rewards/test-results/server.pid ]; then kill "$(cat rewards/test-results/server.pid)" 2>/dev/null || true; fi
+          docker rm -f ftr-mongodb >/dev/null 2>&1 || true
