@@ -1,3 +1,59 @@
-import "dotenv/config";import fs from "node:fs/promises";import path from "node:path";import { fileURLToPath } from "node:url";import express from "express";import cors from "cors";import { connectDatabaseWithRetry,databaseHealth,requireDatabase } from "./config/db.js";import { adminApi } from "./routes/adminApi.js";import { webhookRouter } from "./routes/webhooks.js";import { processRewardSyncJobs } from "./services/shopify-sync.service.js";import { releaseExpiredRedemptions } from "./services/redemption.service.js";
-const __filename=fileURLToPath(import.meta.url),__dirname=path.dirname(__filename),publicDir=path.resolve(__dirname,"../public"),app=express(),port=Number(process.env.PORT||process.env.FRONTEND_PORT||3100);app.disable("x-powered-by");app.use(cors({origin:false}));app.use("/webhooks",express.raw({type:"application/json",limit:"1mb"}),requireDatabase,webhookRouter);app.use(express.json({limit:"256kb"}));app.use(express.static(publicDir,{index:false}));app.get("/health",(_req,res)=>{const database=databaseHealth();res.status(database.status==="connected"?200:503).json({ok:database.status==="connected",service:"freetheroot-rewards-admin",database})});app.use("/api/admin",requireDatabase,adminApi);app.get(/^(?!\/api\/|\/health$|\/webhooks\/).*/,async(_req,res,next)=>{try{const template=await fs.readFile(path.join(publicDir,"index.html"),"utf8"),apiKey=process.env.SHOPIFY_API_KEY||"";res.type("html").send(template.replaceAll("%SHOPIFY_API_KEY%",apiKey))}catch(error){next(error)}});app.use((error,_req,res,_next)=>{console.error("[Rewards Admin]",error);const status=error?.statusCode||(error?.code===11000?409:500);res.status(status).json({error:status===409?"Duplicate transaction":error.message||"Internal server error"})});
-app.listen(port,"0.0.0.0",()=>{console.log(`[Rewards Admin] embedded app home running on port ${port}`);connectDatabaseWithRetry()});setInterval(()=>{if(databaseHealth().status!=="connected")return;processRewardSyncJobs().catch(e=>console.error("[Rewards Sync Worker]",e));releaseExpiredRedemptions().catch(e=>console.error("[Rewards Redemption Worker]",e))},5000).unref();
+import "dotenv/config";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import express from "express";
+import cors from "cors";
+import { connectDatabaseWithRetry, databaseHealth, requireDatabase } from "./config/db.js";
+import { adminApi } from "./routes/adminApi.js";
+import { webhookRouter } from "./routes/webhooks.js";
+import { processRewardSyncJobs } from "./services/shopify-sync.service.js";
+import { releaseExpiredRedemptions } from "./services/redemption.service.js";
+import { errorHandler, requestId } from "./middleware/errorHandler.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const publicDir = path.resolve(__dirname, "../public");
+const app = express();
+const port = Number(process.env.PORT || process.env.FRONTEND_PORT || 3100);
+
+app.disable("x-powered-by");
+app.use(requestId);
+app.use(cors({ origin: false }));
+app.use("/webhooks", express.raw({ type: "application/json", limit: "1mb" }), requireDatabase, webhookRouter);
+app.use(express.json({ limit: "256kb" }));
+app.use(express.static(publicDir, { index: false }));
+
+app.get("/health", (_req, res) => {
+  const database = databaseHealth();
+  res.status(database.status === "connected" ? 200 : 503).json({
+    ok: database.status === "connected",
+    service: "freetheroot-rewards-admin",
+    database,
+  });
+});
+
+app.use("/api/admin", requireDatabase, adminApi);
+
+app.get(/^(?!\/api\/|\/health$|\/webhooks\/).*/, async (_req, res, next) => {
+  try {
+    const template = await fs.readFile(path.join(publicDir, "index.html"), "utf8");
+    const apiKey = process.env.SHOPIFY_API_KEY || "";
+    res.type("html").send(template.replaceAll("%SHOPIFY_API_KEY%", apiKey));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.use(errorHandler);
+
+app.listen(port, "0.0.0.0", () => {
+  console.log(`[Rewards Admin] embedded app home running on port ${port}`);
+  connectDatabaseWithRetry();
+});
+
+setInterval(() => {
+  if (databaseHealth().status !== "connected") return;
+  processRewardSyncJobs().catch((error) => console.error("[Rewards Sync Worker]", error));
+  releaseExpiredRedemptions().catch((error) => console.error("[Rewards Redemption Worker]", error));
+}, 5000).unref();
