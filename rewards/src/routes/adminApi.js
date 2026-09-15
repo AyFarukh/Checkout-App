@@ -6,6 +6,7 @@ import { EarningRule } from "../models/EarningRule.js";
 import { Reward } from "../models/Reward.js";
 import { RewardSettings } from "../models/RewardSettings.js";
 import { applyPointsTransaction, getCustomerLedger } from "../services/rewards.service.js";
+import { ensureDefaultRewardsProgram } from "../services/defaults.service.js";
 
 export const adminApi = Router();
 adminApi.use(adminAuth);
@@ -17,7 +18,17 @@ function shopFrom(req) {
 }
 function editable(body, fields) { return Object.fromEntries(fields.filter((key) => body[key] !== undefined).map((key) => [key, body[key]])); }
 
-adminApi.get("/session", (req, res) => res.json({ shop: shopFrom(req), subject: req.shopifySession?.subject || "admin" }));
+// Opening the embedded admin guarantees a usable starter program exists in MongoDB.
+// Seeding is idempotent and never overwrites merchant edits.
+adminApi.get("/session", async (req, res, next) => { try {
+  const shop = shopFrom(req);
+  await ensureDefaultRewardsProgram(shop);
+  res.json({ shop, subject: req.shopifySession?.subject || "admin" });
+} catch (e) { next(e); } });
+adminApi.post("/seed-defaults", async (req, res, next) => { try {
+  res.json(await ensureDefaultRewardsProgram(shopFrom(req)));
+} catch (e) { next(e); } });
+
 adminApi.get("/dashboard", async (req, res, next) => { try {
   const shop = shopFrom(req); const [members, aggregate, recent] = await Promise.all([
     RewardCustomer.countDocuments({ shop }),
