@@ -53,41 +53,10 @@ function RewardsPage() {
       {error && <s-banner tone="critical">{error}</s-banner>}
       {!data && !error && <s-section><s-stack direction="block" gap="small"><s-heading>Loading your rewards</s-heading><s-spinner /></s-stack></s-section>}
       {data && <>
-        <s-section heading="Your balance">
-          <s-stack direction="block" gap="small">
-            <s-heading>{points.toLocaleString()} points</s-heading>
-            <s-text>{Number(customer.pointsReserved || 0).toLocaleString()} points currently reserved</s-text>
-            <s-progress value={progress} max={100} />
-            <s-text>{next ? `${Math.max(0, Number(next.pointsCost) - points).toLocaleString()} more points until ${next.name}` : 'You can unlock every available reward.'}</s-text>
-          </s-stack>
-        </s-section>
-
-        <s-section heading="Available rewards">
-          <s-stack direction="block" gap="base">
-            {(data.rewards || []).length === 0 && <s-text>No rewards are available yet.</s-text>}
-            {(data.rewards || []).map((reward) => <s-box key={reward._id} padding="base" border="base" borderRadius="base">
-              <s-stack direction="block" gap="small">
-                <s-heading>{reward.name}</s-heading>
-                <s-text>{Number(reward.pointsCost).toLocaleString()} points</s-text>
-                {reward.minimumSpend > 0 && <s-text>Minimum spend: {reward.minimumSpend}</s-text>}
-                <s-button disabled={points < reward.pointsCost || Boolean(busy)} loading={busy === reward._id} onClick={() => redeem(reward)}>{points >= reward.pointsCost ? 'Redeem reward' : 'Keep earning'}</s-button>
-              </s-stack>
-            </s-box>)}
-          </s-stack>
-        </s-section>
-
-        <s-section heading="Ways to earn">
-          <s-stack direction="block" gap="small">
-            {(data.rules || []).map((rule) => <s-box key={rule._id} padding="small"><s-stack direction="inline" gap="small"><s-text type="strong">{rule.name}</s-text><s-text>{rule.pointsPerDollar ? `${rule.pointsPerDollar} points per $1` : rule.points ? `+${rule.points} points` : rule.multiplier ? `${rule.multiplier}× points` : 'Earn points'}</s-text></s-stack></s-box>)}
-          </s-stack>
-        </s-section>
-
-        <s-section heading="Recent activity">
-          <s-stack direction="block" gap="small">
-            {(data.activity || []).length === 0 && <s-text>Your points activity will appear here.</s-text>}
-            {(data.activity || []).slice(0, 12).map((item) => <s-box key={item._id} padding="small"><s-stack direction="inline" gap="small"><s-text>{item.reason || item.source}</s-text><s-text type="strong">{item.points > 0 ? '+' : ''}{item.points} points</s-text></s-stack></s-box>)}
-          </s-stack>
-        </s-section>
+        <s-section heading="Your balance"><s-stack direction="block" gap="small"><s-heading>{points.toLocaleString()} points</s-heading><s-text>{Number(customer.pointsReserved || 0).toLocaleString()} points currently reserved</s-text><s-progress value={progress} max={100} /><s-text>{next ? `${Math.max(0, Number(next.pointsCost) - points).toLocaleString()} more points until ${next.name}` : 'You can unlock every available reward.'}</s-text></s-stack></s-section>
+        <s-section heading="Available rewards"><s-stack direction="block" gap="base">{(data.rewards || []).length === 0 && <s-text>No rewards are available yet.</s-text>}{(data.rewards || []).map((reward) => <s-box key={reward._id} padding="base" border="base" borderRadius="base"><s-stack direction="block" gap="small"><s-heading>{reward.name}</s-heading><s-text>{Number(reward.pointsCost).toLocaleString()} points</s-text>{reward.minimumSpend > 0 && <s-text>Minimum spend: {reward.minimumSpend}</s-text>}<s-button disabled={points < reward.pointsCost || Boolean(busy)} loading={busy === reward._id} onClick={() => redeem(reward)}>{points >= reward.pointsCost ? 'Redeem reward' : 'Keep earning'}</s-button></s-stack></s-box>)}</s-stack></s-section>
+        <s-section heading="Ways to earn"><s-stack direction="block" gap="small">{(data.rules || []).map((rule) => <s-box key={rule._id} padding="small"><s-stack direction="inline" gap="small"><s-text type="strong">{rule.name}</s-text><s-text>{rule.pointsPerDollar ? `${rule.pointsPerDollar} points per $1` : rule.points ? `+${rule.points} points` : rule.multiplier ? `${rule.multiplier}× points` : 'Earn points'}</s-text></s-stack></s-box>)}</s-stack></s-section>
+        <s-section heading="Recent activity"><s-stack direction="block" gap="small">{(data.activity || []).length === 0 && <s-text>Your points activity will appear here.</s-text>}{(data.activity || []).slice(0, 12).map((item) => <s-box key={item._id} padding="small"><s-stack direction="inline" gap="small"><s-text>{item.reason || item.source}</s-text><s-text type="strong">{item.points > 0 ? '+' : ''}{item.points} points</s-text></s-stack></s-box>)}</s-stack></s-section>
       </>}
     </s-stack>
   </s-page>;
