@@ -14,7 +14,6 @@ export async function reserveRedemption({ shop, shopifyCustomerId, rewardId, req
   if (existing) return { ...publicView(existing), duplicate: true };
   const reward = await Reward.findOne({ _id: rewardId, shop, enabled: true }).lean();
   if (!reward) throw Object.assign(new Error("Reward not found or disabled"), { statusCode: 404 });
-  if (reward.shopifySync?.status !== "SYNCED") throw Object.assign(new Error("Reward is not synchronized with Shopify"), { statusCode: 409 });
   const token = crypto.randomBytes(32).toString("base64url"), publicReference = `rwd_${crypto.randomBytes(18).toString("base64url")}`, expiresAt = new Date(Date.now() + 30 * 60_000);
   const session = await mongoose.startSession(); let redemption;
   try { await session.withTransaction(async () => {
