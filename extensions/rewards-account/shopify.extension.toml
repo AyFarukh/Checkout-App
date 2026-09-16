@@ -10,6 +10,7 @@ target = "customer-account.page.render"
 module = "./src/RewardsPage.jsx"
 
 [extensions.capabilities]
+api_access = true
 network_access = true
 
 [extensions.settings]
