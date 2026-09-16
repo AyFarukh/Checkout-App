@@ -38,7 +38,11 @@ app.use("/api/customer", cors({ origin: "*", methods: ["GET", "POST", "OPTIONS"]
 app.get(/^(?!\/api\/|\/health$|\/webhooks\/).*/, async (_req, res, next) => {
   try {
     const template = await fs.readFile(path.join(publicDir, "index.html"), "utf8");
-    res.type("html").send(template.replaceAll("%SHOPIFY_API_KEY%", process.env.SHOPIFY_API_KEY || ""));
+    const html = template
+      .replaceAll("%SHOPIFY_API_KEY%", process.env.SHOPIFY_API_KEY || "")
+      .replace("</head>", '<link rel="stylesheet" href="/customers.css"/></head>')
+      .replace("</body>", '<script src="/customers.js" defer></script></body>');
+    res.type("html").send(html);
   } catch (error) { next(error); }
 });
 app.use(errorHandler);
