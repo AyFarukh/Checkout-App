@@ -19,7 +19,9 @@ export async function reserveRedemption({ shop, shopifyCustomerId, rewardId, req
   try { await session.withTransaction(async () => {
     const customer = await RewardCustomer.findOneAndUpdate({ shop, shopifyCustomerId, pointsBalance: { $gte: reward.pointsCost } }, { $inc: { pointsBalance: -reward.pointsCost, pointsReserved: reward.pointsCost } }, { new: true, session });
     if (!customer) throw Object.assign(new Error("Insufficient points balance"), { statusCode: 409 });
-    [redemption] = await Redemption.create([{ shop, shopifyCustomerId, rewardId: reward._id, rewardVersion: reward.version, points: reward.pointsCost, requestId, publicReference, tokenHash: hash(token), expiresAt, shopifyCartId: cartId }], { session });
+    const redemptionData = { shop, shopifyCustomerId, rewardId: reward._id, rewardVersion: reward.version, points: reward.pointsCost, requestId, publicReference, tokenHash: hash(token), expiresAt };
+    if (cartId != null && String(cartId).trim()) redemptionData.shopifyCartId = String(cartId).trim();
+    [redemption] = await Redemption.create([redemptionData], { session });
   }); } finally { await session.endSession(); }
   return { ...publicView(redemption), token, duplicate: false };
 }
