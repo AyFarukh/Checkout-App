@@ -83,12 +83,8 @@ jobs:
       MONGODB_DB_NAME: freetheroot_rewards_acceptance
       REWARDS_ACCEPTANCE_BASE_URL: http://127.0.0.1:3100
       REWARDS_ACCEPTANCE_RESULT_DIR: ${{ github.workspace }}/rewards/test-results
-      SHOPIFY_API_KEY: ${{ secrets.REWARDS_TEST_SHOPIFY_API_KEY }}
-      SHOPIFY_API_SECRET: ${{ secrets.REWARDS_TEST_SHOPIFY_API_SECRET }}
-      REWARDS_ACCEPTANCE_ADMIN_TOKEN_A: ${{ secrets.REWARDS_ACCEPTANCE_ADMIN_TOKEN_A }}
-      REWARDS_ACCEPTANCE_ADMIN_TOKEN_B: ${{ secrets.REWARDS_ACCEPTANCE_ADMIN_TOKEN_B }}
-      REWARDS_ACCEPTANCE_DEAD_EVENT_A: ${{ secrets.REWARDS_ACCEPTANCE_DEAD_EVENT_A }}
-      REWARDS_ACCEPTANCE_DEAD_EVENT_B: ${{ secrets.REWARDS_ACCEPTANCE_DEAD_EVENT_B }}
+      SHOPIFY_API_KEY: ftr-acceptance-api-key
+      SHOPIFY_API_SECRET: ftr-acceptance-api-secret-not-production
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -100,12 +96,6 @@ jobs:
         run: |
           set -euo pipefail
           test -f rewards/package-lock.json || { echo "::error::rewards/package-lock.json is required for reproducible CI"; exit 1; }
-      - name: Validate acceptance secrets
-        run: |
-          set -euo pipefail
-          for name in SHOPIFY_API_KEY SHOPIFY_API_SECRET REWARDS_ACCEPTANCE_ADMIN_TOKEN_A REWARDS_ACCEPTANCE_ADMIN_TOKEN_B REWARDS_ACCEPTANCE_DEAD_EVENT_A REWARDS_ACCEPTANCE_DEAD_EVENT_B; do
-            [ -n "${!name:-}" ] || { echo "::error::Required acceptance secret mapping $name is empty"; exit 1; }
-          done
       - name: Start MongoDB replica set
         run: |
           set -euo pipefail
