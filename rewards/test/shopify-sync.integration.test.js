@@ -57,7 +57,9 @@ if (!RUN) {
     requireEnv("SHOPIFY_REWARDS_FUNCTION_ID", process.env.SHOPIFY_REWARDS_FUNCTION_ID);
     validateShopifyAdminConfiguration(SHOP);
     await mongoose.connect(MONGO, { dbName: DB, serverSelectionTimeoutMS: 10000 });
-    await Promise.all([Reward.deleteMany({ shop: SHOP, name: { $regex: `^${PREFIX}` } }), ShopifySyncJob.deleteMany({ shop: SHOP })]);
+
+    // Never delete shop-wide sync jobs. This run uses a unique prefix and tracks every fixture ID it creates.
+    await Reward.deleteMany({ shop: SHOP, name: { $regex: `^${PREFIX}` } });
 
     const discountIds = new Set();
     const rewardIds = new Set();
@@ -121,12 +123,24 @@ if (!RUN) {
       testFailure = error;
     } finally {
       const cleanupErrors = [];
+
+      // Recover remote IDs from tracked Mongo fixtures before deleting anything. This catches discounts created
+      // remotely even when a test failed before it had a chance to add the ID to discountIds.
+      try {
+        if (rewardIds.size) {
+          const trackedRewards = await Reward.find({ _id: { $in: [...rewardIds] }, shop: SHOP }).select("shopifySync.discountId").lean();
+          for (const reward of trackedRewards) {
+            if (reward?.shopifySync?.discountId) discountIds.add(reward.shopifySync.discountId);
+          }
+        }
+      } catch (error) { cleanupErrors.push(error); }
+
       for (const id of discountIds) {
         try { await cleanupDiscount(id); } catch (error) { cleanupErrors.push(error); }
       }
       try {
         await Promise.all([
-          Reward.deleteMany({ shop: SHOP, name: { $regex: `^${PREFIX}` } }),
+          Reward.deleteMany({ shop: SHOP, _id: { $in: [...rewardIds] } }),
           ShopifySyncJob.deleteMany({ shop: SHOP, aggregateId: { $in: [...rewardIds] } }),
         ]);
       } catch (error) { cleanupErrors.push(error); }
