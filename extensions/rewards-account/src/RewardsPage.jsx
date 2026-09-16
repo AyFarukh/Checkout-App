@@ -1,6 +1,5 @@
-/** @jsxImportSource preact */
 import '@shopify/ui-extensions/preact';
-import {render} from 'preact';
+import {h, render} from 'preact';
 import {useCallback, useEffect, useMemo, useState} from 'preact/hooks';
 
 export default async () => render(<RewardsPage />, document.body);
