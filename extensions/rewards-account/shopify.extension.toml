@@ -3,6 +3,7 @@ api_version = "2026-07"
 [[extensions]]
 name = "FreeTheRoots Rewards"
 handle = "ftr-rewards-account"
+uid = "9ab91548-a461-c910-b22c-8a44d1c297d993191b1b"
 type = "ui_extension"
 
 [[extensions.targeting]]
