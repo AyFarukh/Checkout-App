@@ -6,6 +6,7 @@ import express from "express";
 import cors from "cors";
 import { connectDatabaseWithRetry, databaseHealth, requireDatabase } from "./config/db.js";
 import { adminApi } from "./routes/adminApi.js";
+import { customerApi } from "./routes/customerApi.js";
 import { webhookRouter } from "./routes/webhooks.js";
 import { processRewardSyncJobs } from "./services/shopify-sync.service.js";
 import { releaseExpiredRedemptions } from "./services/redemption.service.js";
@@ -21,7 +22,6 @@ let workersRunning = false;
 
 app.disable("x-powered-by");
 app.use(requestId);
-app.use(cors({ origin: false }));
 app.use("/webhooks", express.raw({ type: "application/json", limit: "1mb" }), requireDatabase, webhookRouter);
 app.use(express.json({ limit: "256kb" }));
 app.use(express.static(publicDir, { index: false }));
@@ -32,6 +32,9 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/api/admin", requireDatabase, adminApi);
+// Shopify Customer Account UI extensions execute in a sandboxed worker with a null origin.
+// Authentication is provided by the verified Shopify session token, not by CORS.
+app.use("/api/customer", cors({ origin: "*", methods: ["GET", "POST", "OPTIONS"], allowedHeaders: ["Authorization", "Content-Type", "Idempotency-Key", "X-Request-Id"] }), requireDatabase, customerApi);
 app.get(/^(?!\/api\/|\/health$|\/webhooks\/).*/, async (_req, res, next) => {
   try {
     const template = await fs.readFile(path.join(publicDir, "index.html"), "utf8");

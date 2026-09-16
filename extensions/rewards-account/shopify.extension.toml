@@ -1,0 +1,26 @@
+api_version = "2026-07"
+
+[[extensions]]
+name = "FreeTheRoots Rewards"
+handle = "ftr-rewards-account"
+type = "ui_extension"
+
+[[extensions.targeting]]
+target = "customer-account.page.render"
+module = "./src/RewardsPage.jsx"
+
+[extensions.capabilities]
+network_access = true
+
+[extensions.settings]
+[[extensions.settings.fields]]
+key = "api_base_url"
+type = "single_line_text_field"
+name = "Rewards API URL"
+description = "Public HTTPS URL of the Rewards backend, without a trailing slash."
+
+[[extensions.settings.fields]]
+key = "page_title"
+type = "single_line_text_field"
+name = "Page title"
+description = "Customer-facing rewards page title."

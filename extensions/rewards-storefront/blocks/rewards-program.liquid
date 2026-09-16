@@ -1,0 +1,27 @@
+<section class="ftr-rewards-page" data-ftr-rewards-page>
+  <div class="ftr-rewards-page__inner">
+    <p class="ftr-rewards-page__eyebrow">{{ block.settings.eyebrow | escape }}</p>
+    <h2>{{ block.settings.heading | escape }}</h2>
+    <p class="ftr-rewards-page__copy">{{ block.settings.description | escape }}</p>
+    <div class="ftr-rewards-page__steps">
+      <article><strong>1</strong><h3>Join</h3><p>Create your account and start earning automatically.</p></article>
+      <article><strong>2</strong><h3>Earn</h3><p>Collect points when you shop and complete eligible actions.</p></article>
+      <article><strong>3</strong><h3>Redeem</h3><p>Turn your points into available FreeTheRoots rewards.</p></article>
+    </div>
+    <a class="ftr-rewards-page__cta" href="{{ routes.account_url }}">{{ block.settings.button_label | escape }}</a>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Rewards program",
+  "target": "section",
+  "stylesheet": "rewards.css",
+  "settings": [
+    {"type":"text","id":"eyebrow","label":"Eyebrow","default":"FreeTheRoots Rewards"},
+    {"type":"text","id":"heading","label":"Heading","default":"Rooted in rewards"},
+    {"type":"textarea","id":"description","label":"Description","default":"Earn points for shopping with us, then redeem them for rewards you actually want."},
+    {"type":"text","id":"button_label","label":"Button label","default":"View my rewards"}
+  ]
+}
+{% endschema %}
