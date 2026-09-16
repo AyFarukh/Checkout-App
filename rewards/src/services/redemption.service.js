@@ -14,12 +14,19 @@ export async function reserveRedemption({ shop, shopifyCustomerId, rewardId, req
   if (existing) return { ...publicView(existing), duplicate: true };
   const reward = await Reward.findOne({ _id: rewardId, shop, enabled: true }).lean();
   if (!reward) throw Object.assign(new Error("Reward not found or disabled"), { statusCode: 404 });
+  // Older reward documents can predate the version field. Mongoose defaults are not
+  // retroactively applied to existing MongoDB documents, so normalize it here and
+  // backfill the document before creating a redemption snapshot.
+  const rewardVersion = Number.isInteger(reward.version) && reward.version >= 1 ? reward.version : 1;
+  if (reward.version !== rewardVersion) {
+    await Reward.updateOne({ _id: reward._id, shop }, { $set: { version: rewardVersion, "shopifySync.desiredVersion": rewardVersion } });
+  }
   const token = crypto.randomBytes(32).toString("base64url"), publicReference = `rwd_${crypto.randomBytes(18).toString("base64url")}`, expiresAt = new Date(Date.now() + 30 * 60_000);
   const session = await mongoose.startSession(); let redemption;
   try { await session.withTransaction(async () => {
     const customer = await RewardCustomer.findOneAndUpdate({ shop, shopifyCustomerId, pointsBalance: { $gte: reward.pointsCost } }, { $inc: { pointsBalance: -reward.pointsCost, pointsReserved: reward.pointsCost } }, { new: true, session });
     if (!customer) throw Object.assign(new Error("Insufficient points balance"), { statusCode: 409 });
-    const redemptionData = { shop, shopifyCustomerId, rewardId: reward._id, rewardVersion: reward.version, points: reward.pointsCost, requestId, publicReference, tokenHash: hash(token), expiresAt };
+    const redemptionData = { shop, shopifyCustomerId, rewardId: reward._id, rewardVersion, points: reward.pointsCost, requestId, publicReference, tokenHash: hash(token), expiresAt };
     if (cartId != null && String(cartId).trim()) redemptionData.shopifyCartId = String(cartId).trim();
     [redemption] = await Redemption.create([redemptionData], { session });
   }); } finally { await session.endSession(); }
