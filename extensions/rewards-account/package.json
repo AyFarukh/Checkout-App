@@ -1,1 +1,10 @@
-{"name":"ftr-rewards-account","private":true,"version":"1.0.0","type":"module","dependencies":{"@shopify/ui-extensions":"latest","preact":"latest"}}
+{
+  "name": "ftr-rewards-account",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@preact/signals": "^2.3.1",
+    "@shopify/ui-extensions": "2026.7.x",
+    "preact": "^10.27.0"
+  }
+}
