@@ -5,11 +5,13 @@ import { RewardCustomer } from "../models/RewardCustomer.js";
 import { PointsTransaction } from "../models/PointsTransaction.js";
 import { EarningRule } from "../models/EarningRule.js";
 import { Reward } from "../models/Reward.js";
+import { Redemption } from "../models/Redemption.js";
 import { RewardSettings } from "../models/RewardSettings.js";
 import { ShopifySyncJob } from "../models/ShopifySyncJob.js";
 import { WebhookEvent } from "../models/WebhookEvent.js";
 import { AdminAuditLog } from "../models/AdminAuditLog.js";
 import { applyPointsTransaction, getCustomerLedger } from "../services/rewards.service.js";
+import { releaseRedemption } from "../services/redemption.service.js";
 import { ensureDefaultRewardsProgram } from "../services/defaults.service.js";
 import { enqueueRewardSync, retryRewardSync } from "../services/shopify-sync.service.js";
 import { retryDeadWebhook } from "../services/dead-webhook-admin.service.js";
@@ -18,64 +20,14 @@ import { ADMIN_ERROR_CODES, apiError } from "../errors/api-error.js";
 export const adminApi = Router();
 adminApi.use(adminAuth);
 
-function shopFrom(req) {
-  const shop = String(req.shopifySession?.shop || "").trim().toLowerCase();
-  if (!shop) throw apiError(401, ADMIN_ERROR_CODES.UNAUTHENTICATED, "Unable to resolve authenticated Shopify shop.");
-  return shop;
-}
+function shopFrom(req) { const shop = String(req.shopifySession?.shop || "").trim().toLowerCase(); if (!shop) throw apiError(401, ADMIN_ERROR_CODES.UNAUTHENTICATED, "Unable to resolve authenticated Shopify shop."); return shop; }
 function editable(body, fields) { return Object.fromEntries(fields.filter((key) => body[key] !== undefined).map((key) => [key, body[key]])); }
-function positiveInteger(value, fallback, code, field, max) {
-  if (value === undefined || value === "") return fallback;
-  if (!/^\d+$/.test(String(value))) throw apiError(400, code, `${field} must be an integer greater than or equal to 1.`, { field });
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 1 || (max && parsed > max)) throw apiError(400, code, max ? `${field} must be between 1 and ${max}.` : `${field} must be an integer greater than or equal to 1.`, { field });
-  return parsed;
-}
-function validObjectId(id) {
-  if (!mongoose.Types.ObjectId.isValid(id)) throw apiError(400, ADMIN_ERROR_CODES.INVALID_WEBHOOK_EVENT_ID, "Invalid webhook event ID.", { field: "id" });
-}
+function positiveInteger(value, fallback, code, field, max) { if (value === undefined || value === "") return fallback; if (!/^\d+$/.test(String(value))) throw apiError(400, code, `${field} must be an integer greater than or equal to 1.`, { field }); const parsed = Number(value); if (!Number.isSafeInteger(parsed) || parsed < 1 || (max && parsed > max)) throw apiError(400, code, max ? `${field} must be between 1 and ${max}.` : `${field} must be an integer greater than or equal to 1.`, { field }); return parsed; }
+function validObjectId(id) { if (!mongoose.Types.ObjectId.isValid(id)) throw apiError(400, ADMIN_ERROR_CODES.INVALID_WEBHOOK_EVENT_ID, "Invalid webhook event ID.", { field: "id" }); }
 
-adminApi.get("/webhooks/dead", async (req, res, next) => {
-  try {
-    const shop = shopFrom(req);
-    const page = positiveInteger(req.query.page, 1, ADMIN_ERROR_CODES.INVALID_PAGE, "page");
-    const limit = positiveInteger(req.query.limit, 25, ADMIN_ERROR_CODES.INVALID_LIMIT, "limit", 100);
-    const topic = String(req.query.topic || "").trim();
-    const webhookId = String(req.query.shopifyWebhookId || "").trim();
-    const sort = String(req.query.sort || "desc").toLowerCase();
-    if (sort !== "asc" && sort !== "desc") throw apiError(400, ADMIN_ERROR_CODES.INVALID_REQUEST, "sort must be asc or desc.", { field: "sort" });
-    const allowedTopics = new Set(["orders/paid", "refunds/create", "customers/create"]);
-    if (topic && !allowedTopics.has(topic)) throw apiError(400, ADMIN_ERROR_CODES.INVALID_WEBHOOK_TOPIC, "Unsupported webhook topic filter.", { field: "topic" });
-    const filter = { shop, status: "DEAD", ...(topic ? { topic } : {}), ...(webhookId ? { webhookId } : {}) };
-    const [events, total] = await Promise.all([
-      WebhookEvent.find(filter).select("-payload").sort({ deadAt: sort === "asc" ? 1 : -1, _id: -1 }).skip((page - 1) * limit).limit(limit).lean(),
-      WebhookEvent.countDocuments(filter),
-    ]);
-    res.json({ data: events, meta: { page, limit, total, totalPages: Math.ceil(total / limit), hasNextPage: page * limit < total, hasPreviousPage: page > 1, requestId: req.requestId } });
-  } catch (error) { next(error); }
-});
-
-adminApi.get("/webhooks/dead/:id", async (req, res, next) => {
-  try {
-    validObjectId(req.params.id);
-    const shop = shopFrom(req);
-    const event = await WebhookEvent.findOne({ _id: req.params.id, shop, status: "DEAD" }).lean();
-    if (!event) throw apiError(404, ADMIN_ERROR_CODES.WEBHOOK_EVENT_NOT_FOUND, "Webhook event not found.");
-    const audit = await AdminAuditLog.find({ shop, resourceType: "WebhookEvent", resourceId: event._id }).sort({ createdAt: -1 }).limit(100).lean();
-    res.json({ data: { event, audit }, meta: { requestId: req.requestId } });
-  } catch (error) { next(error); }
-});
-
-adminApi.post("/webhooks/dead/:id/retry", async (req, res, next) => {
-  try {
-    validObjectId(req.params.id);
-    const shop = shopFrom(req);
-    const actorId = String(req.shopifySession?.subject || "shopify-admin");
-    const idempotencyKey = String(req.get("Idempotency-Key") || "").trim();
-    const result = await retryDeadWebhook({ shop, eventId: req.params.id, actorId, idempotencyKey, requestId: req.requestId });
-    res.status(202).json({ ...result, meta: { ...(result.meta || {}), requestId: req.requestId } });
-  } catch (error) { next(error); }
-});
+adminApi.get("/webhooks/dead", async (req, res, next) => { try { const shop = shopFrom(req); const page = positiveInteger(req.query.page, 1, ADMIN_ERROR_CODES.INVALID_PAGE, "page"); const limit = positiveInteger(req.query.limit, 25, ADMIN_ERROR_CODES.INVALID_LIMIT, "limit", 100); const topic = String(req.query.topic || "").trim(); const webhookId = String(req.query.shopifyWebhookId || "").trim(); const sort = String(req.query.sort || "desc").toLowerCase(); if (sort !== "asc" && sort !== "desc") throw apiError(400, ADMIN_ERROR_CODES.INVALID_REQUEST, "sort must be asc or desc.", { field: "sort" }); const allowedTopics = new Set(["orders/paid", "refunds/create", "customers/create"]); if (topic && !allowedTopics.has(topic)) throw apiError(400, ADMIN_ERROR_CODES.INVALID_WEBHOOK_TOPIC, "Unsupported webhook topic filter.", { field: "topic" }); const filter = { shop, status: "DEAD", ...(topic ? { topic } : {}), ...(webhookId ? { webhookId } : {}) }; const [events, total] = await Promise.all([WebhookEvent.find(filter).select("-payload").sort({ deadAt: sort === "asc" ? 1 : -1, _id: -1 }).skip((page - 1) * limit).limit(limit).lean(), WebhookEvent.countDocuments(filter)]); res.json({ data: events, meta: { page, limit, total, totalPages: Math.ceil(total / limit), hasNextPage: page * limit < total, hasPreviousPage: page > 1, requestId: req.requestId } }); } catch (error) { next(error); } });
+adminApi.get("/webhooks/dead/:id", async (req, res, next) => { try { validObjectId(req.params.id); const shop = shopFrom(req); const event = await WebhookEvent.findOne({ _id: req.params.id, shop, status: "DEAD" }).lean(); if (!event) throw apiError(404, ADMIN_ERROR_CODES.WEBHOOK_EVENT_NOT_FOUND, "Webhook event not found."); const audit = await AdminAuditLog.find({ shop, resourceType: "WebhookEvent", resourceId: event._id }).sort({ createdAt: -1 }).limit(100).lean(); res.json({ data: { event, audit }, meta: { requestId: req.requestId } }); } catch (error) { next(error); } });
+adminApi.post("/webhooks/dead/:id/retry", async (req, res, next) => { try { validObjectId(req.params.id); const shop = shopFrom(req); const actorId = String(req.shopifySession?.subject || "shopify-admin"); const idempotencyKey = String(req.get("Idempotency-Key") || "").trim(); const result = await retryDeadWebhook({ shop, eventId: req.params.id, actorId, idempotencyKey, requestId: req.requestId }); res.status(202).json({ ...result, meta: { ...(result.meta || {}), requestId: req.requestId } }); } catch (error) { next(error); } });
 
 adminApi.get("/session", async (req, res, next) => { try { const shop = shopFrom(req); await ensureDefaultRewardsProgram(shop); res.json({ shop, subject: req.shopifySession?.subject || "admin" }); } catch (error) { next(error); } });
 adminApi.post("/seed-defaults", async (req, res, next) => { try { res.json(await ensureDefaultRewardsProgram(shopFrom(req))); } catch (error) { next(error); } });
@@ -84,6 +36,10 @@ adminApi.get("/customers", async (req, res, next) => { try { const shop = shopFr
 adminApi.get("/customers/:id", async (req, res, next) => { try { res.json(await getCustomerLedger({ shop: shopFrom(req), shopifyCustomerId: req.params.id })); } catch (error) { next(error); } });
 adminApi.post("/customers/:id/adjust", async (req, res, next) => { try { const { operation, points, reason, note, customer } = req.body; if (!["ADD", "REMOVE"].includes(operation)) throw apiError(400, ADMIN_ERROR_CODES.INVALID_REQUEST, "operation must be ADD or REMOVE"); const amount = Math.abs(Number(points)); const result = await applyPointsTransaction({ shop: shopFrom(req), shopifyCustomerId: req.params.id, type: "ADJUST", points: operation === "REMOVE" ? -amount : amount, source: "ADMIN_ADJUSTMENT", reason, note, createdBy: req.shopifySession?.subject || "shopify-admin", customer, idempotencyKey: `admin:${req.params.id}:${Date.now()}:${Math.random().toString(36).slice(2)}` }); res.status(201).json(result); } catch (error) { next(error); } });
 adminApi.get("/activity", async (req, res, next) => { try { res.json({ transactions: await PointsTransaction.find({ shop: shopFrom(req) }).sort({ createdAt: -1 }).limit(200).lean() }); } catch (error) { next(error); } });
+
+adminApi.get("/redemptions", async (req, res, next) => { try { const shop = shopFrom(req); const status = String(req.query.status || "").trim().toUpperCase(); const q = String(req.query.q || "").trim(); const allowed = new Set(["RESERVED", "COMMITTED", "RELEASED", "CANCELLED", "REFUNDED"]); if (status && !allowed.has(status)) throw apiError(400, ADMIN_ERROR_CODES.INVALID_REQUEST, "Invalid redemption status filter."); const filter = { shop, ...(status ? { status } : {}) }; if (q) filter.$or = [{ shopifyCustomerId: { $regex: q, $options: "i" } }, { publicReference: { $regex: q, $options: "i" } }, { shopifyOrderId: { $regex: q, $options: "i" } }]; const redemptions = await Redemption.find(filter).select("-tokenHash").populate("rewardId", "name type pointsCost discountValue").sort({ createdAt: -1 }).limit(200).lean(); const customerIds = [...new Set(redemptions.map(r => r.shopifyCustomerId))]; const customers = await RewardCustomer.find({ shop, shopifyCustomerId: { $in: customerIds } }).select("shopifyCustomerId firstName lastName email").lean(); const byCustomer = new Map(customers.map(c => [c.shopifyCustomerId, c])); res.json({ redemptions: redemptions.map(r => ({ ...r, customer: byCustomer.get(r.shopifyCustomerId) || null })) }); } catch (error) { next(error); } });
+adminApi.post("/redemptions/:reference/cancel", async (req, res, next) => { try { const shop = shopFrom(req); const reference = String(req.params.reference || "").trim(); if (!reference) throw apiError(400, ADMIN_ERROR_CODES.INVALID_REQUEST, "Redemption reference is required."); const redemption = await releaseRedemption({ shop, publicReference: reference, status: "CANCELLED" }); await AdminAuditLog.create({ shop, actorId: String(req.shopifySession?.subject || "shopify-admin"), action: "REDEMPTION_CANCELLED", resourceType: "Redemption", resourceId: redemption._id, metadata: { publicReference: reference, points: redemption.points, requestId: req.requestId } }); res.json({ redemption }); } catch (error) { next(error); } });
+
 adminApi.get("/earning-rules", async (req, res, next) => { try { res.json({ rules: await EarningRule.find({ shop: shopFrom(req) }).sort({ priority: 1, createdAt: 1 }).lean() }); } catch (error) { next(error); } });
 adminApi.post("/earning-rules", async (req, res, next) => { try { res.status(201).json({ rule: await EarningRule.create({ ...req.body, shop: shopFrom(req) }) }); } catch (error) { next(error); } });
 adminApi.put("/earning-rules/:id", async (req, res, next) => { try { const updates = editable(req.body, ["name", "type", "enabled", "points", "pointsPerDollar", "multiplier", "priority", "conditions"]); const rule = await EarningRule.findOneAndUpdate({ _id: req.params.id, shop: shopFrom(req) }, { $set: updates }, { new: true, runValidators: true }).lean(); if (!rule) return res.status(404).json({ error: "Rule not found" }); res.json({ rule }); } catch (error) { next(error); } });
