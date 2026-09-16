@@ -7,7 +7,7 @@ type = "ui_extension"
 
 [[extensions.targeting]]
 target = "customer-account.page.render"
-module = "./src/RewardsPage.jsx"
+module = "./src/RewardsPage.js"
 
 [extensions.capabilities]
 api_access = true
