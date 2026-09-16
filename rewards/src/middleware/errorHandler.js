@@ -11,6 +11,10 @@ export function requestId(req, res, next) {
 function normalizeError(error) {
   if (error instanceof ApiError) return error;
 
+  if (Number.isInteger(error?.statusCode) && error.statusCode >= 400 && error.statusCode <= 499) {
+    return new ApiError(error.statusCode, error.code || ADMIN_ERROR_CODES.INVALID_REQUEST, error.message || "The request could not be completed.", error.details);
+  }
+
   if (error?.code === 11000) {
     return new ApiError(409, ADMIN_ERROR_CODES.INVALID_REQUEST, "A conflicting record already exists.");
   }
@@ -35,8 +39,8 @@ export function errorHandler(error, req, res, _next) {
     requestId: req.requestId,
     method: req.method,
     path: req.originalUrl,
-    shop: req.shopifySession?.shop,
-    actorId: req.shopifySession?.subject,
+    shop: req.shopifySession?.shop || req.customerSession?.shop,
+    actorId: req.shopifySession?.subject || req.customerSession?.shopifyCustomerId,
     status,
     code: normalized.code,
     message: error?.message,
