@@ -1,0 +1,14 @@
+query RewardsDeliveryInput {
+  cart {
+    cost {
+      subtotalAmount { amount }
+    }
+    deliveryGroups { id }
+  }
+  discount {
+    discountClasses
+    metafield(namespace: "freetheroot_rewards", key: "function-configuration") {
+      jsonValue
+    }
+  }
+}
