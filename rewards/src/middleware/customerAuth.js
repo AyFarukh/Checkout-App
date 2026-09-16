@@ -21,9 +21,10 @@ export async function customerAuth(req, _res, next) {
     const { payload } = await jwtVerify(token, new TextEncoder().encode(secret), { algorithms: ["HS256"], audience });
     const shop = normalizeShop(payload.dest);
     const subject = String(payload.sub || "");
-    const match = subject.match(/^gid:\/\/shopify\/Customer\/(.+)$/);
+    const match = subject.match(/^gid:\/\/shopify\/Customer\/(\d+)$/);
     if (!shop || !match?.[1]) throw Object.assign(new Error("Signed-in Shopify customer is required"), { statusCode: 401 });
-    req.customerSession = { shop, shopifyCustomerId: match[1], subject };
+    const shopifyCustomerId = `gid://shopify/Customer/${match[1]}`;
+    req.customerSession = { shop, shopifyCustomerId, numericCustomerId: match[1], subject };
     next();
   } catch (error) {
     if (!error.statusCode) error.statusCode = 401;
