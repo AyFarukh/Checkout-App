@@ -2,6 +2,13 @@ import mongoose from "mongoose";
 import { RewardCustomer } from "../models/RewardCustomer.js";
 import { PointsTransaction } from "../models/PointsTransaction.js";
 
+export function normalizeShopifyCustomerId(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const match = raw.match(/^(?:gid:\/\/shopify\/Customer\/)?(\d+)$/);
+  return match ? `gid://shopify/Customer/${match[1]}` : raw;
+}
+
 function normalizeDelta(type, points) {
   const numeric = Number(points);
   if (!Number.isFinite(numeric) || numeric === 0) throw new Error("Points must be a non-zero number");
@@ -11,15 +18,17 @@ function normalizeDelta(type, points) {
 }
 
 export async function ensureRewardCustomer({ shop, shopifyCustomerId, email, firstName, lastName }) {
+  const customerId = normalizeShopifyCustomerId(shopifyCustomerId);
   return RewardCustomer.findOneAndUpdate(
-    { shop, shopifyCustomerId },
-    { $setOnInsert: { shop, shopifyCustomerId }, $set: { ...(email ? { email } : {}), ...(firstName ? { firstName } : {}), ...(lastName ? { lastName } : {}) } },
+    { shop, shopifyCustomerId: customerId },
+    { $setOnInsert: { shop, shopifyCustomerId: customerId }, $set: { ...(email ? { email } : {}), ...(firstName ? { firstName } : {}), ...(lastName ? { lastName } : {}) } },
     { upsert: true, new: true }
   );
 }
 
 export async function applyPointsTransaction(input) {
-  const { shop, shopifyCustomerId, type, points, source, reason, note, createdBy, idempotencyKey, shopifyOrderId, rewardId, metadata, customer = {} } = input;
+  const { shop, type, points, source, reason, note, createdBy, idempotencyKey, shopifyOrderId, rewardId, metadata, customer = {} } = input;
+  const shopifyCustomerId = normalizeShopifyCustomerId(input.shopifyCustomerId);
   if (!shop || !shopifyCustomerId || !type || !source) throw new Error("shop, shopifyCustomerId, type and source are required");
 
   if (idempotencyKey) {
@@ -51,9 +60,10 @@ export async function applyPointsTransaction(input) {
 }
 
 export async function getCustomerLedger({ shop, shopifyCustomerId, limit = 50 }) {
+  const customerId = normalizeShopifyCustomerId(shopifyCustomerId);
   const [customer, transactions] = await Promise.all([
-    RewardCustomer.findOne({ shop, shopifyCustomerId }).lean(),
-    PointsTransaction.find({ shop, shopifyCustomerId }).sort({ createdAt: -1 }).limit(Math.min(Number(limit) || 50, 200)).lean(),
+    RewardCustomer.findOne({ shop, shopifyCustomerId: customerId }).lean(),
+    PointsTransaction.find({ shop, shopifyCustomerId: customerId }).sort({ createdAt: -1 }).limit(Math.min(Number(limit) || 50, 200)).lean(),
   ]);
   return { customer, transactions };
 }
