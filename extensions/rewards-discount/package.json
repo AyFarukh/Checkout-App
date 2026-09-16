@@ -1,0 +1,14 @@
+{
+  "name": "ftr-rewards-discount",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "shopify": "npm exec -- shopify",
+    "build": "npm exec -- shopify app function build",
+    "typegen": "npm exec -- shopify app function typegen"
+  },
+  "dependencies": {
+    "@shopify/shopify_function": "~2.0.0"
+  }
+}
