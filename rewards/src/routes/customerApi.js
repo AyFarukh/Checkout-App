@@ -18,7 +18,10 @@ customerApi.get("/me", async (req, res, next) => {
     const { shop, shopifyCustomerId } = context(req);
     const [customer, rewards, rules, activity, redemptions] = await Promise.all([
       RewardCustomer.findOne({ shop, shopifyCustomerId }).lean(),
-      Reward.find({ shop, enabled: true, "shopifySync.status": "SYNCED" }).sort({ pointsCost: 1 }).select("name type pointsCost discountValue minimumSpend productId collectionId metadata").lean(),
+      // Customer Account is the rewards catalogue. Enabled rewards must remain visible
+      // even while Shopify discount synchronization is pending/failed. The sync state
+      // is returned so checkout/redemption flows can enforce readiness separately.
+      Reward.find({ shop, enabled: true }).sort({ pointsCost: 1 }).select("name type pointsCost discountValue minimumSpend productId collectionId metadata shopifySync.status shopifySync.syncedVersion version").lean(),
       EarningRule.find({ shop, enabled: true }).sort({ priority: 1 }).select("name type points pointsPerDollar multiplier conditions").lean(),
       PointsTransaction.find({ shop, shopifyCustomerId }).sort({ createdAt: -1 }).limit(50).select("type points balanceAfter source reason createdAt rewardId shopifyOrderId").lean(),
       Redemption.find({ shop, shopifyCustomerId }).sort({ createdAt: -1 }).limit(20).select("-tokenHash").lean(),
