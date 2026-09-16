@@ -1,0 +1,22 @@
+query RewardsCartInput {
+  cart {
+    cost {
+      subtotalAmount { amount }
+    }
+    lines {
+      id
+      merchandise {
+        ... on ProductVariant {
+          id
+          product { id }
+        }
+      }
+    }
+  }
+  discount {
+    discountClasses
+    metafield(namespace: "freetheroot_rewards", key: "function-configuration") {
+      jsonValue
+    }
+  }
+}
