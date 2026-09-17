@@ -4,6 +4,7 @@ api_version = "2026-07"
 name = "FreeTheRoots Checkout Rewards"
 handle = "ftr-rewards-checkout"
 type = "ui_extension"
+uid = "dd233e9b-263b-38d3-a8e5-e8f66c847abcf3196a42"
 
 [[extensions.targeting]]
 target = "purchase.checkout.block.render"
