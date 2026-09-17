@@ -4,6 +4,7 @@ import { Reward } from "../models/Reward.js";
 import { RewardCustomer } from "../models/RewardCustomer.js";
 import { Redemption } from "../models/Redemption.js";
 import { PointsTransaction } from "../models/PointsTransaction.js";
+import { createRedemptionDiscount } from "./shopify-redemption-discount.service.js";
 
 const hash = value => crypto.createHash("sha256").update(value).digest("hex");
 const publicView = doc => { const value = doc?.toObject ? doc.toObject() : { ...doc }; delete value.tokenHash; return value; };
@@ -14,9 +15,9 @@ export async function reserveRedemption({ shop, shopifyCustomerId, rewardId, req
   if (existing) return { ...publicView(existing), duplicate: true };
   const reward = await Reward.findOne({ _id: rewardId, shop, enabled: true }).lean();
   if (!reward) throw Object.assign(new Error("Reward not found or disabled"), { statusCode: 404 });
-  // Older reward documents can predate the version field. Mongoose defaults are not
-  // retroactively applied to existing MongoDB documents, so normalize it here and
-  // backfill the document before creating a redemption snapshot.
+  if (reward.shopifySync?.status !== "SYNCED" || Number(reward.shopifySync?.syncedVersion || 0) !== Number(reward.version || 1)) {
+    throw Object.assign(new Error("Reward is not ready for Shopify checkout yet"), { statusCode: 409, code: "REWARD_NOT_SYNCED" });
+  }
   const rewardVersion = Number.isInteger(reward.version) && reward.version >= 1 ? reward.version : 1;
   if (reward.version !== rewardVersion) {
     await Reward.updateOne({ _id: reward._id, shop }, { $set: { version: rewardVersion, "shopifySync.desiredVersion": rewardVersion } });
@@ -30,6 +31,20 @@ export async function reserveRedemption({ shop, shopifyCustomerId, rewardId, req
     if (cartId != null && String(cartId).trim()) redemptionData.shopifyCartId = String(cartId).trim();
     [redemption] = await Redemption.create([redemptionData], { session });
   }); } finally { await session.endSession(); }
+
+  try {
+    const discount = await createRedemptionDiscount({ shop, reward, redemption });
+    redemption = await Redemption.findOneAndUpdate(
+      { _id: redemption._id, status: "RESERVED" },
+      { $set: { shopifyDiscountId: discount.discountId, discountCode: discount.code, discountCreatedAt: new Date() } },
+      { new: true },
+    );
+  } catch (error) {
+    // Shopify code creation happens outside the Mongo transaction. If it fails, release
+    // the reservation immediately so a customer never loses points without a usable code.
+    try { await releaseRedemption({ shop, publicReference, status: "RELEASED" }); } catch {}
+    throw error;
+  }
   return { ...publicView(redemption), token, duplicate: false };
 }
 
@@ -46,6 +61,15 @@ export async function commitRedemption({ shop, publicReference, shopifyCustomerI
     redemption.status = "COMMITTED"; redemption.shopifyOrderId = String(shopifyOrderId); redemption.committedAt = new Date(); await redemption.save({ session }); result = redemption;
   }); } finally { await session.endSession(); }
   return publicView(result);
+}
+
+export async function commitRedemptionFromPaidOrder({ shop, shopifyOrderId, shopifyCustomerId, discountCodes = [] }) {
+  if (!shopifyCustomerId || !shopifyOrderId) return null;
+  const codes = discountCodes.map(value => String(value || "").trim().toUpperCase()).filter(Boolean);
+  if (!codes.length) return null;
+  const redemption = await Redemption.findOne({ shop, shopifyCustomerId: String(shopifyCustomerId), status: "RESERVED", discountCode: { $in: codes } }).lean();
+  if (!redemption) return null;
+  return commitRedemption({ shop, publicReference: redemption.publicReference, shopifyCustomerId, shopifyOrderId });
 }
 
 export async function releaseRedemption({ shop, publicReference, status = "RELEASED" }) {
