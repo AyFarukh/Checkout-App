@@ -3,6 +3,7 @@ api_version = "2026-07"
 [[extensions]]
 name = "FreeTheRoots Rewards Discount"
 handle = "ftr-rewards-discount"
+uid = "da98ebe6-fd74-3a9c-07d6-00d229b0dfd83f297637"
 type = "function"
 description = "Applies one-time FreeTheRoots rewards redemption discounts"
 
