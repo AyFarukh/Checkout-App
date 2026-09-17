@@ -27,6 +27,7 @@ export async function adminAuth(req, res, next) {
       req.shopifySession = {
         shop: destinationHost,
         subject: payload.sub ? String(payload.sub) : "shopify-admin",
+        idToken: token,
       };
       return next();
     }
@@ -41,6 +42,7 @@ export async function adminAuth(req, res, next) {
     return res.status(401).json({ error: "Unauthorized" });
   } catch (error) {
     console.error("[Rewards Auth]", error.message);
+    res.set("X-Shopify-Retry-Invalid-Session-Request", "1");
     return res.status(401).json({ error: "Invalid or expired Shopify session" });
   }
 }
