@@ -4,9 +4,20 @@ import { assertNoUserErrors, shopifyAdminGraphql, validateShopifyAdminConfigurat
 const MAX_ATTEMPTS=Number(process.env.REWARDS_SYNC_MAX_ATTEMPTS||5),LOCK_MS=Number(process.env.REWARDS_SYNC_LOCK_MS||5*60_000);
 const DEACTIVATE=`mutation RewardDiscountDeactivate($id: ID!) { discountAutomaticDeactivate(id: $id) { automaticDiscountNode { id } userErrors { field message } } }`;
 
-export async function enqueueRewardSync(reward){const version=Number(reward.version||1);await Reward.updateOne({_id:reward._id},{$set:{"shopifySync.desiredVersion":version,"shopifySync.status":reward.enabled?"PENDING":"DISABLED","shopifySync.lastError":null}});return ShopifySyncJob.findOneAndUpdate({shop:reward.shop,idempotencyKey:`reward:${reward._id}:version:${version}`},{$setOnInsert:{shop:reward.shop,type:"REWARD_SYNC",aggregateId:reward._id,aggregateVersion:version,idempotencyKey:`reward:${reward._id}:version:${version}`,status:"PENDING",nextAttemptAt:new Date()}},{upsert:true,new:true})}
-export async function retryRewardSync(shop,rewardId){const reward=await Reward.findOne({_id:rewardId,shop});if(!reward)throw Object.assign(new Error("Reward not found"),{statusCode:404});await ShopifySyncJob.updateMany({shop,aggregateId:reward._id,status:"FAILED"},{$set:{status:"SUPERSEDED",completedAt:new Date()}});reward.version+=1;reward.shopifySync.status=reward.enabled?"PENDING":"DISABLED";await reward.save();return enqueueRewardSync(reward)}
-export async function wakePendingRewardSyncs(shop){const result=await ShopifySyncJob.updateMany({shop,status:"PENDING"},{$set:{nextAttemptAt:new Date()}});if(result.modifiedCount)console.log(`[Rewards Sync] woke ${result.modifiedCount} pending job(s) for ${shop}`);return result.modifiedCount}
+export async function enqueueRewardSync(reward){
+  const version=Number(reward.version||1),status=reward.enabled?"PENDING":"DISABLED",now=new Date(),idempotencyKey=`reward:${reward._id}:version:${version}`;
+  await Reward.updateOne({_id:reward._id},{$set:{"shopifySync.desiredVersion":version,"shopifySync.status":status,"shopifySync.lastError":null}});
+  // Upsert the current-version job into a runnable state. Older builds could leave an
+  // idempotent job PENDING with a future retry time or exhausted attempt counter, which
+  // made a perfectly valid catalog reward appear stuck forever.
+  return ShopifySyncJob.findOneAndUpdate(
+    {shop:reward.shop,idempotencyKey},
+    {$set:{shop:reward.shop,type:"REWARD_SYNC",aggregateId:reward._id,aggregateVersion:version,status:"PENDING",attempts:0,nextAttemptAt:now,lastError:null},$unset:{lockedAt:"",completedAt:""}},
+    {upsert:true,new:true,setDefaultsOnInsert:true},
+  );
+}
+export async function retryRewardSync(shop,rewardId){const reward=await Reward.findOne({_id:rewardId,shop});if(!reward)throw Object.assign(new Error("Reward not found"),{statusCode:404});await ShopifySyncJob.updateMany({shop,aggregateId:reward._id,status:{$in:["FAILED","PENDING","PROCESSING"]}},{$set:{status:"SUPERSEDED",completedAt:new Date()},$unset:{lockedAt:""}});reward.version+=1;reward.shopifySync.status=reward.enabled?"PENDING":"DISABLED";reward.shopifySync.lastError=null;await reward.save();return enqueueRewardSync(reward)}
+export async function wakePendingRewardSyncs(shop){const result=await ShopifySyncJob.updateMany({shop,status:"PENDING"},{$set:{nextAttemptAt:new Date(),attempts:0},$unset:{lockedAt:""}});if(result.modifiedCount)console.log(`[Rewards Sync] woke ${result.modifiedCount} pending job(s) for ${shop}`);return result.modifiedCount}
 function retryDelay(attempt){return Math.min(600000,Math.max(5000,5000*3**Math.max(0,attempt-1)))}
 export function rewardFunctionConfiguration(reward){return{schemaVersion:1,rewardId:String(reward._id),rewardVersion:Number(reward.version),type:reward.type,pointsCost:Number(reward.pointsCost),discountValue:Number(reward.discountValue||0),minimumSpend:Number(reward.minimumSpend||0),productId:reward.productId||null,collectionId:reward.collectionId||null}}
 
