@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { WebhookEvent } from "../models/WebhookEvent.js";
+import { PointsTransaction } from "../models/PointsTransaction.js";
 import { awardForAction, reverseForRefund } from "./rules.service.js";
 import { commitRedemptionFromPaidOrder, refundRedemption } from "./redemption.service.js";
 import { shopifyAdminGraphql } from "./shopify-admin.service.js";
@@ -12,6 +13,17 @@ function retryable(error){if(error?.permanent===true)return false;if(["Validatio
 function customerGid(value){const id=String(value||"").trim();if(!id)return null;return id.startsWith("gid://shopify/Customer/")?id:`gid://shopify/Customer/${id}`}
 function orderGid(value){const id=String(value||"").trim();if(!id)return null;return id.startsWith("gid://shopify/Order/")?id:`gid://shopify/Order/${id}`}
 function normalizedCodes(values=[]){return [...new Set(values.map(item=>typeof item==="string"?item:item?.code).map(value=>String(value||"").trim().toUpperCase()).filter(Boolean))]}
+function successfulRefundAmount(body){
+  const transactions=Array.isArray(body?.transactions)?body.transactions:[];
+  return transactions
+    .filter(item=>String(item?.kind||"").toLowerCase()==="refund" && ["success","successful"].includes(String(item?.status||"").toLowerCase()))
+    .reduce((sum,item)=>sum+Math.max(0,Number(item?.amount||0)||0),0);
+}
+async function originalEligibleAmount(shop,orderId){
+  const earn=await PointsTransaction.findOne({shop,shopifyOrderId:String(orderId),type:"EARN",source:"SHOPIFY_ORDER_PAID"}).sort({createdAt:1}).lean();
+  const amount=Number(earn?.metadata?.eligibleAmount||0);
+  return Number.isFinite(amount)&&amount>0?amount:0;
+}
 
 const ORDER_REDEMPTION_CONTEXT = `query RewardsPaidOrder($id: ID!) {
   order(id: $id) {
@@ -28,10 +40,6 @@ const ORDER_REDEMPTION_CONTEXT = `query RewardsPaidOrder($id: ID!) {
 async function paidOrderRedemptionContext(event, body) {
   let customerId = customerGid(body.customer?.admin_graphql_api_id || body.customer?.id);
   let discountCodes = normalizedCodes(body.discount_codes || []);
-  // Shopify REST webhook customer IDs are numeric while our customer/account APIs use
-  // GraphQL GIDs. Normalize them above. If the webhook does not expose a code (this can
-  // occur for some Function-backed shipping applications), read the authoritative order
-  // discount applications from Admin GraphQL before deciding there is no redemption.
   if ((!customerId || !discountCodes.length) && body.id != null) {
     const data = await shopifyAdminGraphql(event.shop, ORDER_REDEMPTION_CONTEXT, { id: orderGid(body.admin_graphql_api_id || body.id) });
     customerId ||= data?.order?.customer?.id || null;
@@ -55,13 +63,21 @@ async function processPayload(event) {
   }
   if (event.topic === "customers/create") return awardForAction({shop:event.shop,type:"ACCOUNT_CREATE",customer:body,eventId:body.id,source:"SHOPIFY_CUSTOMER_CREATED"});
   if (event.topic === "refunds/create") {
-    const refundedAmount=(body.transactions||[]).filter(i=>i.kind==="refund"&&i.status==="success").reduce((s,i)=>s+Number(i.amount||0),0);
-    const orderAmount=Number(body.order_adjustments?.[0]?.amount || body.total_price || body.order_total || 0);
-    const ratio=orderAmount>0?Math.min(1,refundedAmount/orderAmount):1;
+    const orderId=String(body.order_id||"").trim();
+    const refundId=String(body.id||"").trim();
+    if(!orderId||!refundId)throw Object.assign(new Error("Refund webhook is missing order_id or id"),{permanent:true,code:"REFUND_IDENTITY_MISSING"});
+    const refundedAmount=successfulRefundAmount(body);
+    const originalAmount=await originalEligibleAmount(event.shop,orderId);
+    const ratio=originalAmount>0?Math.min(1,refundedAmount/originalAmount):(refundedAmount>0?1:0);
+    if(refundedAmount<=0){
+      console.log(`[Rewards Webhook] refund ${refundId} for order ${orderId} has no successful refund transaction; no points changed`);
+      return {earning:{skipped:true,reason:"No successful refund transaction"},redemption:{refunded:0}};
+    }
     const [earning,redemption]=await Promise.all([
-      reverseForRefund({shop:event.shop,orderId:body.order_id,refundId:body.id,refundedAmount}),
-      refundRedemption({shop:event.shop,shopifyOrderId:body.order_id,refundId:body.id,ratio}),
+      reverseForRefund({shop:event.shop,orderId,refundId,refundedAmount}),
+      refundRedemption({shop:event.shop,shopifyOrderId:orderId,refundId,ratio}),
     ]);
+    console.log(`[Rewards Webhook] refund ${refundId} processed for order ${orderId}; amount=${refundedAmount}; original=${originalAmount||"unknown"}; ratio=${ratio.toFixed(4)}; rewardPointsRestored=${redemption?.refunded||0}`);
     return {earning,redemption};
   }
   const error=new Error(`Unsupported webhook topic: ${event.topic}`);error.permanent=true;throw error;
