@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { adminAuth } from "../middleware/adminAuth.js";
 import { ensureOfflineTokenForAdminSession } from "../services/shopify-token.service.js";
+import { wakePendingRewardSyncs } from "../services/shopify-sync.service.js";
 
 export const shopifyToken = Router();
 shopifyToken.use(adminAuth);
@@ -16,8 +17,9 @@ shopifyToken.post("/exchange", async (req, res, next) => {
 
     console.log(`[Rewards Auth] App Bridge ID token received for ${shop}`);
     const result = await ensureOfflineTokenForAdminSession({ shop, idToken });
-    console.log(`[Rewards Auth] background sync authorization ${result.status} for ${shop}`);
-    return res.json({ ok: true, ...result });
+    const woken = await wakePendingRewardSyncs(shop);
+    console.log(`[Rewards Auth] background sync authorization ${result.status} for ${shop}; ${woken} pending job(s) ready`);
+    return res.json({ ok: true, ...result, pendingJobsWoken: woken });
   } catch (error) {
     console.error(`[Rewards Auth] offline token bootstrap failed: ${error.message}`);
     if (error?.code === "SHOPIFY_TOKEN_EXCHANGE_FAILED" || error?.code === "SHOPIFY_ID_TOKEN_REQUIRED") {
