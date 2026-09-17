@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { WebhookEvent } from "../models/WebhookEvent.js";
 import { awardForAction, reverseForRefund } from "./rules.service.js";
-import { refundRedemption } from "./redemption.service.js";
+import { commitRedemptionFromPaidOrder, refundRedemption } from "./redemption.service.js";
 
 const MAX_ATTEMPTS = Number(process.env.REWARDS_WEBHOOK_MAX_ATTEMPTS || 8);
 const LOCK_MS = Number(process.env.REWARDS_WEBHOOK_LOCK_MS || 5 * 60_000);
@@ -14,7 +14,15 @@ async function processPayload(event) {
   if (event.topic === "orders/paid") {
     const eligibleAmount = Number(body.subtotal_price || body.current_subtotal_price || 0);
     const productIds = (body.line_items || []).map(i=>i.product_id).filter(Boolean).map(String);
-    return awardForAction({ shop:event.shop,type:"PURCHASE",customer:body.customer,eventId:body.id,amount:eligibleAmount,source:"SHOPIFY_ORDER_PAID",shopifyOrderId:String(body.id),metadata:{orderName:body.name,eligibleAmount,currency:body.currency,productIds,collectionIds:[],customerOrdersCount:body.customer?.orders_count} });
+    const discountCodes = (body.discount_codes || []).map(item => typeof item === "string" ? item : item?.code).filter(Boolean);
+    const customerId = body.customer?.id != null ? String(body.customer.id) : null;
+    // Commit a reserved loyalty redemption only when the paid order actually contains
+    // its one-time Shopify code. Earning the purchase points remains a separate action.
+    const [earning, redemption] = await Promise.all([
+      awardForAction({ shop:event.shop,type:"PURCHASE",customer:body.customer,eventId:body.id,amount:eligibleAmount,source:"SHOPIFY_ORDER_PAID",shopifyOrderId:String(body.id),metadata:{orderName:body.name,eligibleAmount,currency:body.currency,productIds,collectionIds:[],customerOrdersCount:body.customer?.orders_count} }),
+      commitRedemptionFromPaidOrder({ shop:event.shop,shopifyOrderId:String(body.id),shopifyCustomerId:customerId,discountCodes }),
+    ]);
+    return { earning, redemption };
   }
   if (event.topic === "customers/create") return awardForAction({shop:event.shop,type:"ACCOUNT_CREATE",customer:body,eventId:body.id,source:"SHOPIFY_CUSTOMER_CREATED"});
   if (event.topic === "refunds/create") {
