@@ -12,7 +12,7 @@ module = "./src/Checkout.jsx"
 
 [extensions.capabilities]
 api_access = true
-network_access = false
+network_access = true
 
 [extensions.settings]
 [[extensions.settings.fields]]
