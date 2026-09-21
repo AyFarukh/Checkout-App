@@ -1,14 +1,51 @@
-<div class="ftr-rewards-launcher" data-ftr-rewards-launcher data-account-url="{{ routes.account_url }}">
-  <button class="ftr-rewards-launcher__button" type="button" aria-expanded="false" aria-controls="ftr-rewards-panel">★ {{ block.settings.label | escape }}</button>
-  <aside id="ftr-rewards-panel" class="ftr-rewards-launcher__panel" hidden>
-    <button class="ftr-rewards-launcher__close" type="button" aria-label="Close rewards">×</button>
-    <p class="ftr-rewards-launcher__eyebrow">FreeTheRoots Rewards</p>
-    <h3>Rewards grow with every order.</h3>
-    <p>Sign in to see your points, available rewards, and recent activity.</p>
-    <a href="{{ routes.account_url }}">View my rewards</a>
+{% liquid
+  assign signed_in = false
+  if customer
+    assign signed_in = true
+  endif
+  assign points = 0
+  if customer and customer.metafields.freetheroot_rewards.points_balance.value != blank
+    assign points = customer.metafields.freetheroot_rewards.points_balance.value | plus: 0
+  elsif customer and customer.metafields.freetheroot_rewards.points.value != blank
+    assign points = customer.metafields.freetheroot_rewards.points.value | plus: 0
+  endif
+  assign rewards_url = block.settings.rewards_url | default: routes.account_url
+  assign signup_url = routes.account_register_url
+  if signup_url == blank
+    assign signup_url = routes.account_login_url
+  endif
+%}
+<div class="ftr-rewards-launcher ftr-rewards-launcher--{{ block.settings.position }}" data-ftr-rewards-launcher data-storage-key="ftr-rewards-{{ shop.permanent_domain | escape }}" style="--ftr-rewards-accent:{{ block.settings.accent_color }};">
+  <button class="ftr-rewards-launcher__button" type="button" aria-expanded="false" aria-controls="ftr-rewards-panel-{{ block.id }}">
+    <span class="ftr-rewards-launcher__icon" aria-hidden="true">★</span>
+    <span class="ftr-rewards-launcher__label"><strong>Rewards</strong><small>{% if signed_in %}{{ points }} points{% else %}{{ block.settings.guest_launcher_text | escape }}{% endif %}</small></span>
+  </button>
+  <aside id="ftr-rewards-panel-{{ block.id }}" class="ftr-rewards-launcher__panel" hidden>
+    <div class="ftr-rewards-launcher__hero">
+      <button class="ftr-rewards-launcher__close" type="button" aria-label="Close rewards">×</button>
+      <span class="ftr-rewards-launcher__hero-icon" aria-hidden="true">★</span>
+      {% if signed_in %}
+        <p class="ftr-rewards-launcher__eyebrow">Your rewards</p>
+        <h3>{{ points }} points</h3>
+        <p>Keep earning and turn your points into FreeTheRoots rewards.</p>
+      {% else %}
+        <p class="ftr-rewards-launcher__eyebrow">FreeTheRoots Rewards</p>
+        <h3>{{ block.settings.guest_heading | escape }}</h3>
+        <p>{{ block.settings.guest_body | escape }}</p>
+      {% endif %}
+    </div>
+    <div class="ftr-rewards-launcher__body">
+      {% if signed_in %}
+        <div class="ftr-rewards-launcher__balance"><span>Available balance</span><strong>{{ points }} points</strong></div>
+        <a class="ftr-rewards-launcher__primary" href="{{ rewards_url }}">View my rewards</a>
+        <p class="ftr-rewards-launcher__note">See available rewards, ways to earn, and recent points activity.</p>
+      {% else %}
+        <a class="ftr-rewards-launcher__primary" href="{{ signup_url }}">{{ block.settings.signup_label | escape }}</a>
+        <a class="ftr-rewards-launcher__secondary" href="{{ routes.account_login_url }}">Already a member? Sign in</a>
+      {% endif %}
+    </div>
   </aside>
 </div>
-
 {% schema %}
 {
   "name": "Rewards launcher",
@@ -16,7 +53,13 @@
   "javascript": "rewards-launcher.js",
   "stylesheet": "rewards.css",
   "settings": [
-    {"type":"text","id":"label","label":"Launcher label","default":"Rewards"}
+    {"type":"url","id":"rewards_url","label":"Rewards page URL"},
+    {"type":"text","id":"guest_launcher_text","label":"Guest launcher text","default":"Get $5 in rewards"},
+    {"type":"text","id":"guest_heading","label":"Guest heading","default":"Get $5 in rewards"},
+    {"type":"textarea","id":"guest_body","label":"Guest message","default":"Create an account and start earning rewards with FreeTheRoots."},
+    {"type":"text","id":"signup_label","label":"Sign-up button","default":"Create account"},
+    {"type":"color","id":"accent_color","label":"Accent color","default":"#2f9e57"},
+    {"type":"select","id":"position","label":"Widget position","default":"right","options":[{"value":"right","label":"Bottom right"},{"value":"left","label":"Bottom left"}]}
   ]
 }
 {% endschema %}
