@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { RewardCustomer } from "../models/RewardCustomer.js";
 import { PointsTransaction } from "../models/PointsTransaction.js";
+import { syncCustomerRewardsMirrorBestEffort } from "./shopify-customer-rewards-mirror.service.js";
 
 export function normalizeShopifyCustomerId(value) {
   const raw = String(value || "").trim();
@@ -33,13 +34,17 @@ export async function applyPointsTransaction(input) {
 
   if (idempotencyKey) {
     const existing = await PointsTransaction.findOne({ shop, idempotencyKey });
-    if (existing) return { customer: await RewardCustomer.findOne({ shop, shopifyCustomerId }), transaction: existing, duplicate: true };
+    if (existing) {
+      const existingCustomer=await RewardCustomer.findOne({ shop, shopifyCustomerId });
+      if(existingCustomer)await syncCustomerRewardsMirrorBestEffort({shop,shopifyCustomerId,pointsBalance:existingCustomer.pointsBalance});
+      return { customer: existingCustomer, transaction: existing, duplicate: true };
+    }
   }
 
   const delta = normalizeDelta(type, points);
   const session = await mongoose.startSession();
+  let result;
   try {
-    let result;
     await session.withTransaction(async () => {
       let account = await RewardCustomer.findOne({ shop, shopifyCustomerId }).session(session);
       if (!account) [account] = await RewardCustomer.create([{ shop, shopifyCustomerId, ...customer }], { session });
@@ -55,8 +60,12 @@ export async function applyPointsTransaction(input) {
       const [transaction] = await PointsTransaction.create([{ shop, shopifyCustomerId, type, points: delta, balanceAfter: nextBalance, source, reason, note, createdBy: createdBy || "system", idempotencyKey, shopifyOrderId, rewardId, metadata: metadata || {} }], { session });
       result = { customer: account, transaction, duplicate: false };
     });
-    return result;
   } finally { await session.endSession(); }
+  // MongoDB is authoritative. Shopify is a display mirror, so a Shopify outage must
+  // never roll back a valid points transaction. Failed mirrors are logged and the
+  // next balance mutation/duplicate delivery retries the current authoritative value.
+  await syncCustomerRewardsMirrorBestEffort({shop,shopifyCustomerId,pointsBalance:result.customer.pointsBalance});
+  return result;
 }
 
 export async function getCustomerLedger({ shop, shopifyCustomerId, limit = 50 }) {
