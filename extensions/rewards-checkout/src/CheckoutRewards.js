@@ -27,6 +27,11 @@ function CheckoutRewards(){
 
   const active=useMemo(()=>((data?.redemptions||[]).filter(r=>r.status==='RESERVED'&&r.discountCode)),[data]);
   const points=Number(data?.customer?.pointsBalance||0);
+  const rewards=data?.rewards||[];
+  const affordable=rewards.filter(r=>points>=Number(r.pointsCost||0));
+  const nextReward=useMemo(()=>rewards
+    .filter(r=>Number(r.pointsCost||0)>points)
+    .sort((a,b)=>Number(a.pointsCost||0)-Number(b.pointsCost||0))[0],[rewards,points]);
 
   async function applyCode(code){
     const canUpdate=shopify.instructions?.value?.discounts?.canUpdateDiscountCodes;
@@ -39,8 +44,6 @@ function CheckoutRewards(){
   async function redeem(reward){
     try{
       setBusy(reward._id);setError('');
-      // The rewards backend creates a customer-specific, one-use code. The discount
-      // itself is non-combinable, enforcing the client's one-reward-per-order policy.
       const token=await shopify.sessionToken.get();
       const response=await fetch(`${apiBase}/api/customer/redemptions/reserve`,{
         method:'POST',
@@ -57,32 +60,75 @@ function CheckoutRewards(){
     finally{setBusy('');}
   }
 
-  async function applyExisting(code){try{setBusy(code);setError('');await applyCode(code)}catch(x){setError(x.message||'Reward could not be applied.')}finally{setBusy('')}}
+  async function applyExisting(code){
+    try{setBusy(code);setError('');await applyCode(code)}
+    catch(x){setError(x.message||'Reward could not be applied.')}
+    finally{setBusy('')}
+  }
 
   if(!apiBase)return e('s-banner',{tone:'warning'},'Checkout rewards are being configured.');
-  if(!data&&!error)return e('s-stack',{direction:'block',gap:'small'},e('s-heading',null,heading),e('s-spinner'));
-  if(data?.guest)return e('s-banner',null,'Sign in to your customer account to use FreeTheRoots reward points.');
+  if(!data&&!error)return e('s-box',{padding:'base',border:'base'},
+    e('s-stack',{direction:'block',gap:'small'},e('s-heading',null,heading),e('s-spinner'))
+  );
+  if(data?.guest)return e('s-box',{padding:'base',border:'base'},
+    e('s-stack',{direction:'block',gap:'small'},
+      e('s-heading',null,heading),
+      e('s-text',null,'Sign in to use your reward points at checkout.')
+    )
+  );
   if(error&&!data)return e('s-banner',{tone:'critical'},error);
 
-  const rewards=data?.rewards||[];
-  return e('s-stack',{direction:'block',gap:'base'},
-    e('s-heading',null,heading),
-    e('s-text',null,`You have ${points.toLocaleString()} points.`),
-    error?e('s-banner',{tone:'critical'},error):null,
-    applied?e('s-banner',{tone:'success'},`Reward applied: ${applied}`):null,
-    active.length?e('s-stack',{direction:'block',gap:'small'},
-      e('s-text',null,'Your reserved reward'),
-      ...active.map(r=>e('s-button',{key:r._id,disabled:Boolean(busy),loading:busy===r.discountCode,onClick:()=>applyExisting(r.discountCode)},`Apply ${r.discountCode}`))
-    ):null,
-    rewards.length?e('s-stack',{direction:'block',gap:'small'},...rewards.map(r=>{
-      const cost=Number(r.pointsCost||0),eligible=points>=cost&&!active.length;
-      return e('s-box',{key:r._id,padding:'base',border:'base'},
-        e('s-stack',{direction:'block',gap:'small'},
-          e('s-heading',null,r.name),
-          e('s-text',null,`${cost.toLocaleString()} points`),
-          e('s-button',{disabled:!eligible||Boolean(busy),loading:busy===r._id,onClick:()=>redeem(r)},active.length?'Use your reserved reward':eligible?'Redeem & apply':'Keep earning')
-        )
-      )
-    })):e('s-text',null,'No rewards are currently available.')
+  return e('s-box',{padding:'base',border:'base'},
+    e('s-stack',{direction:'block',gap:'base'},
+      e('s-stack',{direction:'block',gap:'small'},
+        e('s-heading',null,heading),
+        e('s-text',{emphasis:'bold'},`${points.toLocaleString()} points available`),
+        nextReward?e('s-text',{tone:'subdued'},`${(Number(nextReward.pointsCost||0)-points).toLocaleString()} more points until ${nextReward.name}.`):
+          rewards.length?e('s-text',{tone:'subdued'},'You can unlock any reward below.'):null
+      ),
+
+      error?e('s-banner',{tone:'critical'},error):null,
+      applied?e('s-banner',{tone:'success'},`Reward applied successfully: ${applied}`):null,
+
+      active.length?e('s-stack',{direction:'block',gap:'small'},
+        e('s-heading',null,'Reserved reward'),
+        e('s-text',{tone:'subdued'},'You already redeemed a reward. Apply it to this checkout before choosing another.'),
+        ...active.map(r=>e('s-box',{key:r._id,padding:'base',border:'base'},
+          e('s-stack',{direction:'block',gap:'small'},
+            e('s-text',{emphasis:'bold'},r.discountCode),
+            e('s-button',{variant:'primary',disabled:Boolean(busy),loading:busy===r.discountCode,onClick:()=>applyExisting(r.discountCode)},'Apply reserved reward')
+          )
+        ))
+      ):null,
+
+      !active.length&&rewards.length?e('s-stack',{direction:'block',gap:'small'},
+        e('s-heading',null,'Choose a reward'),
+        e('s-text',{tone:'subdued'},affordable.length?
+          `${affordable.length} reward${affordable.length===1?' is':'s are'} available with your current balance.`:
+          'Keep earning points to unlock a reward.'),
+        ...rewards.map(r=>{
+          const cost=Number(r.pointsCost||0);
+          const eligible=points>=cost;
+          const remaining=Math.max(0,cost-points);
+          return e('s-box',{key:r._id,padding:'base',border:'base'},
+            e('s-stack',{direction:'block',gap:'small'},
+              e('s-heading',null,r.name),
+              r.description?e('s-text',{tone:'subdued'},r.description):null,
+              e('s-text',{emphasis:'bold'},`${cost.toLocaleString()} points`),
+              !eligible?e('s-text',{tone:'subdued'},`You need ${remaining.toLocaleString()} more points.`):null,
+              e('s-button',{
+                variant:eligible?'primary':'secondary',
+                disabled:!eligible||Boolean(busy),
+                loading:busy===r._id,
+                onClick:()=>redeem(r)
+              },eligible?'Redeem & apply':'Keep earning')
+            )
+          )
+        })
+      ):null,
+
+      !rewards.length&&!active.length?e('s-text',{tone:'subdued'},'No rewards are currently available.'):null,
+      e('s-text',{tone:'subdued'},'Only one reward can be used per order.')
+    )
   );
 }
