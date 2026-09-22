@@ -22,7 +22,7 @@ function reservationTtlMinutes() {
   return value;
 }
 
-export async function reserveRedemption({ shop, shopifyCustomerId, rewardId, requestId, cartId }) {
+export async function reserveRedemption({ shop, shopifyCustomerId, rewardId, requestId, cartId, discountCreator = createRedemptionDiscount }) {
   if (!requestId) throw Object.assign(new Error("requestId is required"), { statusCode: 400 });
   const existing = await Redemption.findOne({ shop, shopifyCustomerId, requestId }).lean();
   if (existing) return { ...publicView(existing), duplicate: true };
@@ -40,7 +40,7 @@ export async function reserveRedemption({ shop, shopifyCustomerId, rewardId, req
     if (cartId != null && String(cartId).trim()) redemptionData.shopifyCartId = String(cartId).trim();
     [redemption] = await Redemption.create([redemptionData], { session });
   }); } finally { await session.endSession(); }
-  try { const discount = await createRedemptionDiscount({ shop, reward, redemption }); redemption = await Redemption.findOneAndUpdate({ _id: redemption._id, status: "RESERVED" }, { $set: { shopifyDiscountId: discount.discountId, discountCode: discount.code, discountCreatedAt: new Date() } }, { new: true }); }
+  try { const discount = await discountCreator({ shop, reward, redemption }); redemption = await Redemption.findOneAndUpdate({ _id: redemption._id, status: "RESERVED" }, { $set: { shopifyDiscountId: discount.discountId, discountCode: discount.code, discountCreatedAt: new Date() } }, { new: true }); }
   catch (error) { try { await releaseRedemption({ shop, publicReference, status: "RELEASED" }); } catch {} throw error; }
   const reservedCustomer=await RewardCustomer.findOne({shop,shopifyCustomerId}).select("pointsBalance").lean();
   if(reservedCustomer)await syncCustomerRewardsMirrorBestEffort({shop,shopifyCustomerId,pointsBalance:reservedCustomer.pointsBalance});
