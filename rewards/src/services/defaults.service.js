@@ -47,6 +47,13 @@ export async function ensureDefaultRewardsProgram(shop) {
     );
   }
 
+  // Unsupported future rule types stay visible for roadmap/history, but cannot
+  // accidentally remain active if they were enabled by an older build.
+  await EarningRule.updateMany(
+    { shop, type: { $in: ["BIRTHDAY", "REVIEW", "REFERRAL", "BONUS"] }, enabled: true },
+    { $set: { enabled: false } }
+  );
+
   const [rules, rewards, settings] = await Promise.all([
     EarningRule.find({ shop }).sort({ priority: 1, createdAt: 1 }).lean(),
     Reward.find({ shop }).sort({ pointsCost: 1 }).lean(),
