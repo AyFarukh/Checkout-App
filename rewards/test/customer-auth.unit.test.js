@@ -25,7 +25,8 @@ test("FTR-CUST-AUTH-001 verifies shop and customer identity from Shopify JWT", a
     const result = await invoke(`Bearer ${await token()}`);
     assert.equal(result.error, undefined);
     assert.equal(result.req.customerSession.shop, "ftr-test.myshopify.com");
-    assert.equal(result.req.customerSession.shopifyCustomerId, "123");
+    assert.equal(result.req.customerSession.shopifyCustomerId, "gid://shopify/Customer/123");
+    assert.equal(result.req.customerSession.numericCustomerId, "123");
   } finally { process.env.SHOPIFY_API_KEY = previous.key; process.env.SHOPIFY_API_SECRET = previous.secret; }
 });
 
