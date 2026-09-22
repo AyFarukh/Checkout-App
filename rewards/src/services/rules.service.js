@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { EarningRule } from "../models/EarningRule.js";
 import { RewardSettings } from "../models/RewardSettings.js";
 import { PointsTransaction } from "../models/PointsTransaction.js";
@@ -17,11 +18,7 @@ async function ruleEligible({rule,shop,customer,amount,metadata}){
   const requiredTags=strings(c.customerTags).map(x=>x.toLowerCase());
   if(requiredTags.length){const tags=Array.isArray(customer?.tags)?customer.tags:String(customer?.tags||"").split(",");const actual=new Set(tags.map(x=>String(x).trim().toLowerCase()).filter(Boolean));if(!requiredTags.some(x=>actual.has(x)))return false;}
   if(strings(c.productIds).length&&!intersects(c.productIds,metadata?.productIds))return false;
-  if(strings(c.collectionIds).length){
-    const directCollectionMatch=intersects(c.collectionIds,metadata?.collectionIds);
-    const productMembershipMatch=intersects(c.collectionProductIds,metadata?.productIds);
-    if(!directCollectionMatch&&!productMembershipMatch)return false;
-  }
+  if(strings(c.collectionIds).length){const directCollectionMatch=intersects(c.collectionIds,metadata?.collectionIds);const productMembershipMatch=intersects(c.collectionProductIds,metadata?.productIds);if(!directCollectionMatch&&!productMembershipMatch)return false;}
   const max=Number(c.maxAwardsPerCustomer||0);
   if(max>0){const count=await PointsTransaction.countDocuments({shop,shopifyCustomerId:normalizeShopifyCustomerId(customer.id),type:"EARN","metadata.ruleId":String(rule._id)});if(count>=max)return false;}
   return true;
@@ -29,4 +26,42 @@ async function ruleEligible({rule,shop,customer,amount,metadata}){
 
 export async function awardForAction({shop,type,customer,eventId,amount=0,source,shopifyOrderId,metadata={}}){if(!customer?.id)return{skipped:true,reason:"No customer attached to event"};const rules=await EarningRule.find({shop,type,enabled:true}).sort({priority:1,createdAt:1}).lean();if(!rules.length)return{skipped:true,reason:`No enabled ${type} rule`};const results=[];for(const rule of rules){if(!(await ruleEligible({rule,shop,customer,amount,metadata})))continue;const base=type==="PURCHASE"?money(amount)*money(rule.pointsPerDollar)+money(rule.points):money(rule.points),points=Math.floor(base*money(rule.multiplier||1));if(points<=0)continue;results.push(await applyPointsTransaction({shop,shopifyCustomerId:normalizeShopifyCustomerId(customer.id),type:"EARN",points,source,reason:rule.name,shopifyOrderId,customer:{email:customer.email,firstName:customer.first_name,lastName:customer.last_name},idempotencyKey:`${source}:${eventId}:${rule._id}`,metadata:{...metadata,ruleId:String(rule._id),ruleType:rule.type}}))}return{awarded:results.length,results}}
 
-export async function reverseForRefund({shop,orderId,refundId,refundedAmount=0}){const settings=await RewardSettings.findOne({shop}).lean();if(settings?.refundPolicy==="NO_REVERSAL")return{skipped:true,reason:"Refund reversal disabled"};const earns=await PointsTransaction.find({shop,shopifyOrderId:String(orderId),type:"EARN",source:"SHOPIFY_ORDER_PAID"}).lean(),results=[];for(const earn of earns){let points=Math.abs(earn.points);if(settings?.refundPolicy!=="REVERSE_FULL"){const originalAmount=money(earn.metadata?.eligibleAmount);if(originalAmount>0)points=Math.min(points,Math.ceil(points*Math.min(1,money(refundedAmount)/originalAmount)))}if(points<=0)continue;results.push(await applyPointsTransaction({shop,shopifyCustomerId:earn.shopifyCustomerId,type:"REFUND",points,source:"SHOPIFY_REFUND",reason:"Points reversed after refund",shopifyOrderId:String(orderId),idempotencyKey:`SHOPIFY_REFUND:${refundId}:${earn._id}`,metadata:{refundId:String(refundId),originalTransactionId:String(earn._id),refundedAmount}}))}return{reversed:results.length,results}}
+export async function reverseForRefund({shop,orderId,refundId,refundedAmount=0}){
+  const settings=await RewardSettings.findOne({shop}).lean();
+  if(settings?.refundPolicy==="NO_REVERSAL")return{skipped:true,reason:"Refund reversal disabled"};
+  const earns=await PointsTransaction.find({shop,shopifyOrderId:String(orderId),type:"EARN",source:"SHOPIFY_ORDER_PAID"}).lean(),results=[];
+  for(const earn of earns){
+    const idempotencyKey=`SHOPIFY_REFUND:${refundId}:${earn._id}`;
+    const existing=await PointsTransaction.findOne({shop,idempotencyKey}).lean();
+    if(existing){results.push({transaction:existing,duplicate:true});continue}
+
+    const prior=await PointsTransaction.aggregate([
+      {$match:{shop,shopifyOrderId:String(orderId),type:"REFUND",source:"SHOPIFY_REFUND","metadata.originalTransactionId":String(earn._id)}},
+      {$group:{_id:null,total:{$sum:{$abs:"$points"}}}}
+    ]);
+    const alreadyReversed=Math.max(0,Number(prior?.[0]?.total||0));
+    const originalPoints=Math.abs(Number(earn.points)||0);
+    const remaining=Math.max(0,originalPoints-alreadyReversed);
+    if(remaining<=0)continue;
+
+    let requested=originalPoints;
+    if(settings?.refundPolicy!=="REVERSE_FULL"){
+      const originalAmount=money(earn.metadata?.eligibleAmount);
+      if(originalAmount>0)requested=Math.ceil(originalPoints*Math.min(1,money(refundedAmount)/originalAmount));
+    }
+    const points=Math.min(remaining,Math.max(0,requested));
+    if(points<=0)continue;
+
+    try{
+      results.push(await applyPointsTransaction({
+        shop,shopifyCustomerId:earn.shopifyCustomerId,type:"REFUND",points,source:"SHOPIFY_REFUND",
+        reason:"Points reversed after refund",shopifyOrderId:String(orderId),idempotencyKey,
+        metadata:{refundId:String(refundId),originalTransactionId:String(earn._id),refundedAmount,originalEarnPoints:originalPoints,previouslyReversedPoints:alreadyReversed}
+      }));
+    }catch(error){
+      if(error?.code===11000){const duplicate=await PointsTransaction.findOne({shop,idempotencyKey}).lean();if(duplicate){results.push({transaction:duplicate,duplicate:true});continue}}
+      throw error;
+    }
+  }
+  return{reversed:results.filter(item=>!item?.duplicate).length,results};
+}
