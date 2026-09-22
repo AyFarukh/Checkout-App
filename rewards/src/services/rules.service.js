@@ -34,18 +34,36 @@ export async function reverseForRefund({shop,orderId,refundId,refundedAmount=0})
     const existing=await PointsTransaction.findOne({shop,idempotencyKey}).lean();
     if(existing){results.push({transaction:existing,duplicate:true});continue}
 
-    // Do not depend on metadata.originalTransactionId for the cumulative cap.
-    // Older refund rows may not contain that metadata consistently. For a paid
-    // order/rule EARN, all SHOPIFY_REFUND rows with the same order + customer
-    // are immutable deductions from that order's earned points.
-    const priorRefunds=await PointsTransaction.find({
+    // Cap each purchase EARN independently. New refund rows always record the
+    // originating immutable EARN id, so multiple purchase rules on one order
+    // cannot consume each other's reversal allowance. For legacy rows that did
+    // not record an origin, only use the order-wide fallback when this order has
+    // a single EARN; attributing an ambiguous legacy deduction to every rule
+    // would under-reverse valid points.
+    const linkedRefunds=await PointsTransaction.find({
       shop,
       shopifyOrderId:String(orderId),
       shopifyCustomerId:earn.shopifyCustomerId,
       type:"REFUND",
-      source:"SHOPIFY_REFUND"
+      source:"SHOPIFY_REFUND",
+      "metadata.originalTransactionId":String(earn._id)
     }).select("points").lean();
-    const alreadyReversed=priorRefunds.reduce((sum,row)=>sum+Math.abs(Number(row.points)||0),0);
+    let alreadyReversed=linkedRefunds.reduce((sum,row)=>sum+Math.abs(Number(row.points)||0),0);
+    if(earns.length===1){
+      const legacyRefunds=await PointsTransaction.find({
+        shop,
+        shopifyOrderId:String(orderId),
+        shopifyCustomerId:earn.shopifyCustomerId,
+        type:"REFUND",
+        source:"SHOPIFY_REFUND",
+        $or:[
+          {"metadata.originalTransactionId":{$exists:false}},
+          {"metadata.originalTransactionId":null},
+          {"metadata.originalTransactionId":""}
+        ]
+      }).select("points").lean();
+      alreadyReversed+=legacyRefunds.reduce((sum,row)=>sum+Math.abs(Number(row.points)||0),0);
+    }
     const originalPoints=Math.abs(Number(earn.points)||0);
     const remaining=Math.max(0,originalPoints-alreadyReversed);
     if(remaining<=0)continue;
