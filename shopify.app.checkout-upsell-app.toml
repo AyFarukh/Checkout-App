@@ -7,15 +7,9 @@ name = "Freetheroots Checkout Events"
 web_directories = ["rewards"]
 
 [access_scopes]
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-scopes = "read_products,read_discounts,write_discounts,read_customers,write_customers,read_orders"
-=======
+
 scopes = "read_products,read_discounts,write_discounts,read_customers,read_orders, read_customers, write_customers"
->>>>>>> Stashed changes
-=======
-scopes = "read_products,read_discounts,write_discounts,read_customers,read_orders, read_customers, write_customers"
->>>>>>> Stashed changes
+
 
 [access.admin]
 embedded_app_direct_api_access = true
