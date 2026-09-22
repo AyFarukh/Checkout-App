@@ -1,4 +1,6 @@
+import crypto from "node:crypto";
 import { RewardCustomer } from "../models/RewardCustomer.js";
+import { CustomerRewardsMirrorJob } from "../models/CustomerRewardsMirrorJob.js";
 import { assertNoUserErrors, shopifyAdminGraphql } from "./shopify-admin.service.js";
 
 const SET_CUSTOMER_METAFIELD = `mutation RewardsCustomerMirror($metafields: [MetafieldsSetInput!]!) {
@@ -7,9 +9,26 @@ const SET_CUSTOMER_METAFIELD = `mutation RewardsCustomerMirror($metafields: [Met
     userErrors { field message code }
   }
 }`;
+const LOCK_MS=5*60_000,WORKER_ID=`${process.pid}:${crypto.randomUUID()}`;
+const normalizedShop=value=>String(value||"").trim().toLowerCase();
+const retryDelay=attempts=>Math.min(300000,5000*2**Math.min(Math.max(0,attempts),6));
 
-const retryQueue=new Map();
-const keyFor=(shop,customerId)=>`${String(shop).toLowerCase()}|${customerId}`;
+async function clearPersistentRetry(shop,shopifyCustomerId){
+  await CustomerRewardsMirrorJob.deleteOne({shop:normalizedShop(shop),shopifyCustomerId}).catch(error=>{
+    console.error("[Rewards Mirror] could not clear retry job",{shop,customerId:shopifyCustomerId,message:error?.message||String(error)});
+  });
+}
+async function queuePersistentRetry(input,error){
+  const shop=normalizedShop(input?.shop),shopifyCustomerId=String(input?.shopifyCustomerId||"").trim();
+  if(!shop||!shopifyCustomerId)return;
+  const existing=await CustomerRewardsMirrorJob.findOne({shop,shopifyCustomerId}).select("attempts").lean();
+  const attempts=(existing?.attempts||0)+1;
+  await CustomerRewardsMirrorJob.findOneAndUpdate(
+    {shop,shopifyCustomerId},
+    {$set:{status:"PENDING",attempts,nextAttemptAt:new Date(Date.now()+retryDelay(attempts-1)),lastError:String(error?.message||"Rewards mirror failed").slice(0,4000),lastErrorCode:String(error?.code||error?.name||"MIRROR_ERROR").slice(0,100)},$unset:{lockedAt:"",lockOwner:"",completedAt:""}},
+    {upsert:true,new:true,setDefaultsOnInsert:true}
+  );
+}
 
 export async function syncCustomerRewardsMirror({ shop, shopifyCustomerId, pointsBalance }) {
   const ownerId=String(shopifyCustomerId||"").trim();
@@ -17,36 +36,47 @@ export async function syncCustomerRewardsMirror({ shop, shopifyCustomerId, point
   const value=String(Math.max(0,Math.trunc(Number(pointsBalance)||0)));
   const data=await shopifyAdminGraphql(shop,SET_CUSTOMER_METAFIELD,{metafields:[{ownerId,namespace:"freetheroot_rewards",key:"points_balance",type:"number_integer",value}]});
   assertNoUserErrors(data?.metafieldsSet);
-  retryQueue.delete(keyFor(shop,ownerId));
+  await clearPersistentRetry(shop,ownerId);
   return data?.metafieldsSet?.metafields?.[0]||null;
 }
 
 export async function syncCustomerRewardsMirrorBestEffort(input) {
   try{return await syncCustomerRewardsMirror(input)}
   catch(error){
-    const key=keyFor(input?.shop,input?.shopifyCustomerId),previous=retryQueue.get(key);
-    retryQueue.set(key,{shop:input?.shop,shopifyCustomerId:input?.shopifyCustomerId,attempts:(previous?.attempts||0)+1,nextAttemptAt:Date.now()+Math.min(300000,5000*2**Math.min(previous?.attempts||0,6))});
+    try{await queuePersistentRetry(input,error)}catch(queueError){console.error("[Rewards Mirror] persistent retry enqueue failed",{shop:input?.shop,customerId:input?.shopifyCustomerId,message:queueError?.message||String(queueError)})}
     console.error("[Rewards Mirror] customer points sync failed",{shop:input?.shop,customerId:input?.shopifyCustomerId,message:error?.message||String(error),code:error?.code});
     return null;
   }
 }
 
+async function claimRetry(){
+  const now=new Date(),stale=new Date(Date.now()-LOCK_MS);
+  return CustomerRewardsMirrorJob.findOneAndUpdate(
+    {$or:[{status:"PENDING",nextAttemptAt:{$lte:now}},{status:"PROCESSING",lockedAt:{$lte:stale}}]},
+    {$set:{status:"PROCESSING",lockedAt:now,lockOwner:WORKER_ID}},
+    {new:true,sort:{nextAttemptAt:1,createdAt:1}}
+  );
+}
 export async function processCustomerRewardsMirrorRetries(limit=25){
-  const due=[...retryQueue.values()].filter(item=>item.nextAttemptAt<=Date.now()).slice(0,limit);
-  let synced=0,failed=0;
-  for(const item of due){
-    const customer=await RewardCustomer.findOne({shop:String(item.shop||"").toLowerCase(),shopifyCustomerId:item.shopifyCustomerId}).select("pointsBalance").lean();
-    if(!customer){retryQueue.delete(keyFor(item.shop,item.shopifyCustomerId));continue}
-    try{await syncCustomerRewardsMirror({...item,pointsBalance:customer.pointsBalance});synced++}
-    catch(error){failed++;const key=keyFor(item.shop,item.shopifyCustomerId);retryQueue.set(key,{...item,attempts:item.attempts+1,nextAttemptAt:Date.now()+Math.min(300000,5000*2**Math.min(item.attempts,6))})}
+  let processed=0,synced=0,failed=0;
+  while(processed<limit){
+    const job=await claimRetry();if(!job)break;processed++;
+    const customer=await RewardCustomer.findOne({shop:job.shop,shopifyCustomerId:job.shopifyCustomerId}).select("pointsBalance").lean();
+    if(!customer){await CustomerRewardsMirrorJob.deleteOne({_id:job._id});continue}
+    try{
+      await syncCustomerRewardsMirror({shop:job.shop,shopifyCustomerId:job.shopifyCustomerId,pointsBalance:customer.pointsBalance});synced++;
+    }catch(error){
+      failed++;const attempts=Number(job.attempts||0)+1;
+      await CustomerRewardsMirrorJob.updateOne({_id:job._id,status:"PROCESSING",lockOwner:WORKER_ID},{$set:{status:"PENDING",attempts,nextAttemptAt:new Date(Date.now()+retryDelay(attempts-1)),lastError:String(error?.message||"Rewards mirror failed").slice(0,4000),lastErrorCode:String(error?.code||error?.name||"MIRROR_ERROR").slice(0,100)},$unset:{lockedAt:"",lockOwner:""}});
+    }
   }
-  return{processed:due.length,synced,failed,pending:retryQueue.size};
+  return{processed,synced,failed,pending:await CustomerRewardsMirrorJob.countDocuments({status:"PENDING"})};
 }
 
 export async function reconcileCustomerRewardsMirrors({shop,limit=100}={}){
   if(!shop)return{processed:0,synced:0,failed:0};
-  const customers=await RewardCustomer.find({shop:String(shop).toLowerCase()}).select("shopifyCustomerId pointsBalance").limit(Math.min(Math.max(Number(limit)||100,1),250)).lean();
+  const customers=await RewardCustomer.find({shop:normalizedShop(shop)}).select("shopifyCustomerId pointsBalance").limit(Math.min(Math.max(Number(limit)||100,1),250)).lean();
   let synced=0,failed=0;
-  for(const customer of customers){try{await syncCustomerRewardsMirror({shop,shopifyCustomerId:customer.shopifyCustomerId,pointsBalance:customer.pointsBalance});synced++}catch{failed++}}
+  for(const customer of customers){try{await syncCustomerRewardsMirror({shop,shopifyCustomerId:customer.shopifyCustomerId,pointsBalance:customer.pointsBalance});synced++}catch(error){failed++;await queuePersistentRetry({shop,shopifyCustomerId:customer.shopifyCustomerId},error)}}
   return{processed:customers.length,synced,failed};
 }
