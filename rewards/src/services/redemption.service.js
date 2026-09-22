@@ -10,6 +10,18 @@ import { syncCustomerRewardsMirrorBestEffort } from "./shopify-customer-rewards-
 const hash = value => crypto.createHash("sha256").update(value).digest("hex");
 const publicView = doc => { const value = doc?.toObject ? doc.toObject() : { ...doc }; delete value.tokenHash; return value; };
 
+const DEFAULT_RESERVATION_TTL_MINUTES = 30;
+function reservationTtlMinutes() {
+  const raw = process.env.REWARDS_RESERVATION_TTL_MINUTES;
+  if (raw == null || String(raw).trim() === "") return DEFAULT_RESERVATION_TTL_MINUTES;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    console.warn(`[Rewards Redemption] invalid REWARDS_RESERVATION_TTL_MINUTES="${raw}"; using ${DEFAULT_RESERVATION_TTL_MINUTES} minutes`);
+    return DEFAULT_RESERVATION_TTL_MINUTES;
+  }
+  return value;
+}
+
 export async function reserveRedemption({ shop, shopifyCustomerId, rewardId, requestId, cartId }) {
   if (!requestId) throw Object.assign(new Error("requestId is required"), { statusCode: 400 });
   const existing = await Redemption.findOne({ shop, shopifyCustomerId, requestId }).lean();
@@ -19,7 +31,7 @@ export async function reserveRedemption({ shop, shopifyCustomerId, rewardId, req
   if (reward.shopifySync?.status !== "SYNCED" || Number(reward.shopifySync?.syncedVersion || 0) !== Number(reward.version || 1)) throw Object.assign(new Error("Reward is not ready for Shopify checkout yet"), { statusCode: 409, code: "REWARD_NOT_SYNCED" });
   const rewardVersion = Number.isInteger(reward.version) && reward.version >= 1 ? reward.version : 1;
   if (reward.version !== rewardVersion) await Reward.updateOne({ _id: reward._id, shop }, { $set: { version: rewardVersion, "shopifySync.desiredVersion": rewardVersion } });
-  const token = crypto.randomBytes(32).toString("base64url"), publicReference = `rwd_${crypto.randomBytes(18).toString("base64url")}`, expiresAt = new Date(Date.now() + 30 * 60_000);
+  const token = crypto.randomBytes(32).toString("base64url"), publicReference = `rwd_${crypto.randomBytes(18).toString("base64url")}`, expiresAt = new Date(Date.now() + reservationTtlMinutes() * 60_000);
   const session = await mongoose.startSession(); let redemption;
   try { await session.withTransaction(async () => {
     const customer = await RewardCustomer.findOneAndUpdate({ shop, shopifyCustomerId, pointsBalance: { $gte: reward.pointsCost } }, { $inc: { pointsBalance: -reward.pointsCost, pointsReserved: reward.pointsCost } }, { new: true, session });
