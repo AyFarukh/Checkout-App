@@ -53,7 +53,7 @@ test("FTR-ACCOUNT-CREATE account creation awards are correct and idempotent",{sk
       assert.equal(await PointsTransaction.countDocuments({shop,shopifyCustomerId:`gid://shopify/Customer/${second.id}`}),0);
     });
   }finally{
-    await PointsTransaction.deleteMany({shop});
+    // Test fixture cleanup intentionally bypasses immutable ledger model middleware.\n    await PointsTransaction.collection.deleteMany({shop});
     await RewardCustomer.deleteMany({shop});
     await EarningRule.deleteMany({shop});
     await mongoose.disconnect();
