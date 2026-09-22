@@ -1,4 +1,3 @@
-import mongoose from "mongoose";
 import { EarningRule } from "../models/EarningRule.js";
 import { RewardSettings } from "../models/RewardSettings.js";
 import { PointsTransaction } from "../models/PointsTransaction.js";
@@ -35,11 +34,18 @@ export async function reverseForRefund({shop,orderId,refundId,refundedAmount=0})
     const existing=await PointsTransaction.findOne({shop,idempotencyKey}).lean();
     if(existing){results.push({transaction:existing,duplicate:true});continue}
 
-    const prior=await PointsTransaction.aggregate([
-      {$match:{shop,shopifyOrderId:String(orderId),type:"REFUND",source:"SHOPIFY_REFUND","metadata.originalTransactionId":String(earn._id)}},
-      {$group:{_id:null,total:{$sum:{$abs:"$points"}}}}
-    ]);
-    const alreadyReversed=Math.max(0,Number(prior?.[0]?.total||0));
+    // Do not depend on metadata.originalTransactionId for the cumulative cap.
+    // Older refund rows may not contain that metadata consistently. For a paid
+    // order/rule EARN, all SHOPIFY_REFUND rows with the same order + customer
+    // are immutable deductions from that order's earned points.
+    const priorRefunds=await PointsTransaction.find({
+      shop,
+      shopifyOrderId:String(orderId),
+      shopifyCustomerId:earn.shopifyCustomerId,
+      type:"REFUND",
+      source:"SHOPIFY_REFUND"
+    }).select("points").lean();
+    const alreadyReversed=priorRefunds.reduce((sum,row)=>sum+Math.abs(Number(row.points)||0),0);
     const originalPoints=Math.abs(Number(earn.points)||0);
     const remaining=Math.max(0,originalPoints-alreadyReversed);
     if(remaining<=0)continue;
