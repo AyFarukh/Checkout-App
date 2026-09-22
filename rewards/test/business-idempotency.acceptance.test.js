@@ -61,8 +61,8 @@ test("FTR-BIZ-IDEM existing business events are safe to replay", { skip: !uri },
     await t.test("FTR-BIZ-IDEM-003 duplicate REDEEM commit is a no-op", async (t) => {
       const tx = await PointsTransaction.findOne({ type: "REDEEM", source: "SHOPIFY_REWARD", "metadata.publicReference": { $exists: true } }).sort({ createdAt: -1 }).lean();
       if (!tx) return t.skip("No committed reward transaction exists yet");
-      const redemption = await Redemption.findOne({ shop: tx.shop, publicReference: tx.metadata.publicReference }).lean();
-      if (!redemption) return t.skip("Matching redemption no longer exists");
+      const redemption = await Redemption.findOne({ shop: tx.shop, publicReference: tx.metadata.publicReference, status: "COMMITTED" }).lean();
+      if (!redemption) return t.skip("No still-COMMITTED redemption exists; latest redemption may already be REFUNDED");
       const before = await snapshot(tx.shop, tx.shopifyCustomerId);
       await commitRedemption({
         shop: tx.shop, publicReference: redemption.publicReference,
