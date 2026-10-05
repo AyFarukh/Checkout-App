@@ -1,0 +1,27 @@
+api_version = "2026-07"
+
+[[extensions]]
+name = "FreeTheRoots Subscriptions"
+handle = "ftr-subscription-account"
+type = "ui_extension"
+
+[[extensions.targeting]]
+target = "customer-account.page.render"
+module = "./src/SubscriptionPage.js"
+
+[extensions.capabilities]
+api_access = true
+network_access = true
+
+[extensions.settings]
+[[extensions.settings.fields]]
+key = "api_base_url"
+type = "single_line_text_field"
+name = "Subscription API URL"
+description = "Public HTTPS URL of the FTR backend, without a trailing slash."
+
+[[extensions.settings.fields]]
+key = "page_title"
+type = "single_line_text_field"
+name = "Page title"
+description = "Customer-facing subscription page title."
