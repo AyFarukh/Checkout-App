@@ -44,6 +44,26 @@ export function prioritizeSubscriptions(subscriptions = []) {
   return [...subscriptions].sort((a, b) => rank(a?.status) - rank(b?.status));
 }
 
+export function loopMutationsEnabled() {
+  return String(process.env.LOOP_SUBSCRIPTION_MUTATIONS_ENABLED || "").toLowerCase() === "true";
+}
+
+export async function loopAdminRequest(pathname, { method = "GET", body, signal } = {}) {
+  if (method !== "GET" && !loopMutationsEnabled()) {
+    throw serviceError("Subscription changes are disabled until test verification is complete", 503);
+  }
+  const { baseUrl, requestHeaders } = loopReadOnlyConfig();
+  const response = await fetch(`${baseUrl}/${String(pathname || "").replace(/^\//, "")}`, {
+    method,
+    headers: { Accept: "application/json", "Content-Type": "application/json", ...requestHeaders },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
+  });
+  const result = await json(response);
+  if (!response.ok) throw serviceError(result?.message || `Loop request failed with status ${response.status}`, response.status);
+  return result;
+}
+
 export function subscriptionPortalCapabilities() {
   return {
     mode: "read-only", mutationsEnabled: false,
