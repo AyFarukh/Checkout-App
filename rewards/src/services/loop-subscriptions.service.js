@@ -1,4 +1,4 @@
-const DEFAULT_LOOP_STOREFRONT_API = "https://api.loopsubscriptions.com/storefront/2023-10";
+const DEFAULT_LOOP_STOREFRONT_API = "https://api.loopsubscriptions.com/storefront/2026-04";
 
 function configurationError(message) {
   return Object.assign(new Error(message), { statusCode: 503 });
