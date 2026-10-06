@@ -30,7 +30,18 @@ export async function getCustomerLoopSubscriptions(customerShopifyId, { signal }
   if (response.status === 404) return [];
   if (!response.ok) throw serviceError(body?.message || `Loop request failed with status ${response.status}`, response.status);
   const candidates = [body?.subscriptions, body?.data?.subscriptions, body?.data, body?.result?.subscriptions, body?.result, body];
-  return candidates.find(Array.isArray) || [];
+  return prioritizeSubscriptions(candidates.find(Array.isArray) || []);
+}
+
+export function prioritizeSubscriptions(subscriptions = []) {
+  const rank = (status) => {
+    const value = String(status || "").toUpperCase();
+    if (value === "ACTIVE") return 0;
+    if (value === "PAUSED") return 1;
+    if (value === "CANCELLED" || value === "CANCELED") return 3;
+    return 2;
+  };
+  return [...subscriptions].sort((a, b) => rank(a?.status) - rank(b?.status));
 }
 
 export function subscriptionPortalCapabilities() {
