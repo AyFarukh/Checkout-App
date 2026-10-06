@@ -1,61 +1,41 @@
-const DEFAULT_LOOP_STOREFRONT_API = "https://api.loopsubscriptions.com/storefront/2026-04";
+const DEFAULT_LOOP_ADMIN_API = "https://api.loopsubscriptions.com/admin/2026-04";
 
-function configurationError(message) {
-  return Object.assign(new Error(message), { statusCode: 503 });
+function serviceError(message, statusCode = 502) {
+  return Object.assign(new Error(message), { statusCode });
 }
 
 export function loopReadOnlyConfig() {
-  const baseUrl = String(process.env.LOOP_STOREFRONT_API_URL || DEFAULT_LOOP_STOREFRONT_API).replace(/\/$/, "");
-  const apiKey = String(process.env.LOOP_STOREFRONT_API_KEY || "").trim();
-  if (!apiKey) throw configurationError("Loop Storefront API is not configured");
-  return { baseUrl, apiKey };
+  const baseUrl = String(process.env.LOOP_ADMIN_API_URL || DEFAULT_LOOP_ADMIN_API).replace(/\/$/, "");
+  const requestHeaders = JSON.parse(process.env.LOOP_ADMIN_REQUEST_HEADERS_JSON || "{}");
+  if (!Object.keys(requestHeaders).length) throw serviceError("Loop Admin API headers are not configured", 503);
+  return { baseUrl, requestHeaders };
 }
 
-/**
- * Read-only Loop transport for the subscription portal proof of concept.
- * Mutation methods intentionally do not exist in this module.
- */
-export async function loopGet(pathname, { sessionToken, signal } = {}) {
-  const { baseUrl, apiKey } = loopReadOnlyConfig();
-  if (!sessionToken) throw Object.assign(new Error("Loop customer session token is required"), { statusCode: 401 });
+async function json(response) {
+  const text = await response.text();
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return { message: text }; }
+}
 
-  const response = await fetch(`${baseUrl}/${String(pathname || "").replace(/^\//, "")}`, {
+export async function getCustomerLoopSubscriptions(customerShopifyId, { signal } = {}) {
+  const { baseUrl, requestHeaders } = loopReadOnlyConfig();
+  const id = String(customerShopifyId || "").replace(/\D/g, "");
+  if (!id) throw serviceError("A valid Shopify customer ID is required", 400);
+  const response = await fetch(`${baseUrl}/customer/${encodeURIComponent(id)}/subscription`, {
     method: "GET",
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${sessionToken}`,
-      "X-Loop-Api-Key": apiKey,
-    },
+    headers: { Accept: "application/json", ...requestHeaders },
     signal,
   });
-
-  const text = await response.text();
-  let body = null;
-  try { body = text ? JSON.parse(text) : null; } catch { body = { message: text }; }
-  if (!response.ok) {
-    const error = new Error(body?.message || `Loop request failed with status ${response.status}`);
-    error.statusCode = response.status;
-    error.loopStatus = response.status;
-    throw error;
-  }
-  return body;
+  const body = await json(response);
+  if (response.status === 404) return [];
+  if (!response.ok) throw serviceError(body?.message || `Loop request failed with status ${response.status}`, response.status);
+  const candidates = [body?.subscriptions, body?.data?.subscriptions, body?.data, body?.result?.subscriptions, body?.result, body];
+  return candidates.find(Array.isArray) || [];
 }
 
 export function subscriptionPortalCapabilities() {
   return {
-    mode: "read-only",
-    mutationsEnabled: false,
-    actions: {
-      skip: false,
-      reschedule: false,
-      delay: false,
-      orderNow: false,
-      changeFrequency: false,
-      editProducts: false,
-      discount: false,
-      shippingAddress: false,
-      pause: false,
-      cancel: false,
-    },
+    mode: "read-only", mutationsEnabled: false,
+    actions: { skip:false,reschedule:false,delay:false,orderNow:false,changeFrequency:false,editProducts:false,discount:false,shippingAddress:false,pause:false,cancel:false },
   };
 }
