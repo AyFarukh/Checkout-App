@@ -1,23 +1,21 @@
-import {
-  reactExtension,
-  BlockStack,
-  Heading,
-  Text,
-  Banner,
-} from "@shopify/ui-extensions-react/customer-account";
-import React from "react";
+import '@shopify/ui-extensions/preact';
+import {createElement as e,render} from 'preact';
 
-export default reactExtension("customer-account.page.render", () => <SubscriptionPage />);
+export default function extension(){
+  render(e(SubscriptionPage),document.body);
+}
 
-function SubscriptionPage() {
-  return (
-    <BlockStack spacing="base">
-      <Heading>My subscription</Heading>
-      <Banner status="info" title="Subscription portal preview">
-        <Text>
-          This portal is currently read-only while the Loop connection is being verified. No subscription changes can be made from this page.
-        </Text>
-      </Banner>
-    </BlockStack>
+function SubscriptionPage(){
+  const settings=shopify.settings?.value||{};
+  const title=settings.page_title||'My subscription';
+  return e('s-page',{heading:title},
+    e('s-stack',{direction:'block',gap:'base'},
+      e('s-banner',{tone:'info'},
+        e('s-stack',{direction:'block',gap:'small'},
+          e('s-heading',null,'Subscription portal preview'),
+          e('s-text',null,'This portal is currently read-only while the Loop connection is being verified. No subscription changes can be made from this page.')
+        )
+      )
+    )
   );
 }
