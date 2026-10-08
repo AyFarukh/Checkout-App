@@ -1,0 +1,11 @@
+query RunInput {
+  cart {
+    lines {
+      id
+      quantity
+      bundleId: attribute(key: "_bundleId") {
+        value
+      }
+    }
+  }
+}
