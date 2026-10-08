@@ -1,4 +1,4 @@
-api_version = "2025-01"
+api_version = "2026-07"
 
 [[extensions]]
 name = "t:name"
@@ -9,7 +9,7 @@ type = "function"
 description = "t:description"
 
   [[extensions.targeting]]
-  target = "purchase.cart-transform.run"
+  target = "cart.transform.run"
   input_query = "src/run.graphql"
   export = "run"
 
