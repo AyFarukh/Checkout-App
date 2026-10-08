@@ -5,8 +5,8 @@
   "license": "UNLICENSED",
   "dependencies": {
     "react": "^18.0.0",
-    "@shopify/ui-extensions": "2023.10.x",
-    "@shopify/ui-extensions-react": "2023.10.x"
+    "@shopify/ui-extensions": "~2026.7.0",
+    "@shopify/ui-extensions-react": "~2026.7.0"
   },
   "devDependencies": {
     "@types/react": "^18.0.0",
