@@ -3,7 +3,7 @@
 
 # The version of APIs your extension will receive. Learn more:
 # https://shopify.dev/docs/api/usage/versioning
-api_version = "2025-01"
+api_version = "2026-07"
 
 [[extensions]]
 uid = "79b0226c-a913-38df-d22b-9c24a637a2570d9e0816"
