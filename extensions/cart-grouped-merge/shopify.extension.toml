@@ -1,0 +1,22 @@
+api_version = "2025-01"
+
+[[extensions]]
+name = "t:name"
+handle = "cart-grouped-merge"
+uid = "a96fabc5-8a68-4d91-01aa-811dce5149496a867fc7"
+type = "function"
+
+description = "t:description"
+
+  [[extensions.targeting]]
+  target = "purchase.cart-transform.run"
+  input_query = "src/run.graphql"
+  export = "run"
+
+  [extensions.build]
+  command = ""
+  path = "dist/function.wasm"
+
+  [extensions.ui.paths]
+  create = "/"
+  details = "/"
