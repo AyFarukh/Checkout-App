@@ -16,7 +16,7 @@ handle = "shoppay"
 # https://shopify.dev/docs/api/checkout-ui-extensions/unstable/extension-targets-overview
 
 [[extensions.targeting]]
-module = "./src/Checkout.js"
+module = "./src/Checkout.jsx"
 target = "purchase.checkout.block.render"
 
 [extensions.capabilities]
