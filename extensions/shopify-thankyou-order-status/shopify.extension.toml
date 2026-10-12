@@ -18,12 +18,10 @@ handle = "order-status-thank-you"
 [[extensions.targeting]]
 target = "purchase.thank-you.block.render"
 module = "./src/Checkout.jsx"
-export = "thankYouBlock"
 
 [[extensions.targeting]]
 target = "customer-account.order-status.block.render"
-module = "./src/Checkout.jsx"
-export = "orderDetailsBlock"
+module = "./src/OrderStatus.jsx"
 
 [extensions.capabilities]
 # Gives your extension access to directly query Shopify’s storefront API.
