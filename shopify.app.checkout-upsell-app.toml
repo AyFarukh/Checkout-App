@@ -7,7 +7,7 @@ name = "Freetheroots Checkout Events"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_products,read_discounts,write_discounts"
+scopes = "read_products,read_discounts,write_discounts, write_cart_transforms,read_cart_transforms,read_products"
 
 [auth]
 redirect_urls = [ "https://shopify.dev/apps/default-app-home/api/auth" ]

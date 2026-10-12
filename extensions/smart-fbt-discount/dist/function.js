@@ -27,6 +27,9 @@ function parsePercentage(value) {
 function isBundleLine(line) {
   return clean(line?.fbtBundle?.value).toLowerCase() === "true" && Boolean(clean(line?.fbtBundleId?.value)) && Number(line?.quantity || 0) > 0;
 }
+function isFreeGiftLine(line) {
+  return clean(line?.ftrFreeGift?.value).toLowerCase() === "true" && Number(line?.quantity || 0) > 0;
+}
 function merchandiseId(line) {
   return clean(line?.merchandise?.id);
 }
@@ -34,7 +37,11 @@ function cartLinesDiscountsGenerateRun(input) {
   const discountClasses = input?.discount?.discountClasses || [];
   if (!discountClasses.includes(PRODUCT_DISCOUNT_CLASS)) return EMPTY_RESULT;
   const groups = /* @__PURE__ */ new Map();
+  const freeGiftLines = [];
   for (const line of input?.cart?.lines || []) {
+    if (isFreeGiftLine(line)) {
+      freeGiftLines.push(line);
+    }
     if (!isBundleLine(line)) continue;
     const bundleId = clean(line.fbtBundleId.value);
     const percentage = parsePercentage(line?.fbtDiscountPercentage?.value);
@@ -43,6 +50,24 @@ function cartLinesDiscountsGenerateRun(input) {
     groups.get(bundleId).push({ line, percentage });
   }
   const candidates = [];
+  for (const line of freeGiftLines) {
+    candidates.push({
+      message: "Free Gift",
+      targets: [
+        {
+          cartLine: {
+            id: line.id,
+            quantity: 1
+          }
+        }
+      ],
+      value: {
+        percentage: {
+          value: 100
+        }
+      }
+    });
+  }
   for (const entries of groups.values()) {
     if (entries.length < REQUIRED_BUNDLE_LINES) continue;
     const percentages = new Set(entries.map((entry) => entry.percentage));
