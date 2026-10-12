@@ -3,8 +3,20 @@ query RunInput {
     lines {
       id
       quantity
-      bundleId: attribute(key: "_bundleId") {
-        value
+      parentMarker: attribute(key: "_parent") { value }
+      setId: attribute(key: "_set") { value }
+      bundleId: attribute(key: "_bundleId") { value }
+      parentVariantId: attribute(key: "_parent_product_id") { value }
+      merchandise {
+        __typename
+        ... on ProductVariant {
+          id
+          product {
+            bundleChildren: metafield(namespace: "custom", key: "ftr_bundle_children") {
+              jsonValue
+            }
+          }
+        }
       }
     }
   }
