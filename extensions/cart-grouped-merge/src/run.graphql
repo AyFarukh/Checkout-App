@@ -11,11 +11,6 @@ query RunInput {
         __typename
         ... on ProductVariant {
           id
-          product {
-            bundleChildren: metafield(namespace: "custom", key: "ftr_bundle_children") {
-              jsonValue
-            }
-          }
         }
       }
     }
