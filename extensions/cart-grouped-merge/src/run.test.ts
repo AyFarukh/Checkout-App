@@ -2,7 +2,7 @@ import {describe, expect, it} from 'vitest';
 import {run} from './run';
 
 const gid = (id: string) => `gid://shopify/ProductVariant/${id}`;
-const set = 'set-test-123';
+const set = 'set-test-12345678';
 
 function parent(changes: Record<string, unknown> = {}) {
   return {
@@ -62,4 +62,19 @@ describe('FTR dynamic bundle child pricing', () => {
   it('never makes the parent variant a free child', () =>
     expect(execute([parent(), child('1')]))
       .toEqual({operations: []}));
+
+  it('rejects malformed set identifiers', () =>
+    expect(execute([
+      parent({setId: {value: 'bad'}, bundleId: {value: 'bad'}}),
+      child('2', {setId: {value: 'bad'}, bundleId: {value: 'bad'}}),
+    ])).toEqual({operations: []}));
+
+  it('rejects a line that claims to be both parent and child', () =>
+    expect(execute([parent(), child('2', {parentMarker: {value: 'true'}})]))
+      .toEqual({operations: []}));
+
+  it('caps a bundle set at 20 child lines', () => {
+    const children = Array.from({length: 21}, (_, i) => child(String(i + 2)));
+    expect(execute([parent(), ...children])).toEqual({operations: []});
+  });
 });
