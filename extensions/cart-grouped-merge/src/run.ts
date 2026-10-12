@@ -1,62 +1,84 @@
 /**
- * FTR bundle child pricing.
- * Merchant-controlled parent product metafield:
- * custom.ftr_bundle_children (type: json)
- * Example: ["48839676526883","48839675937059","48839676592419"]
+ * FTR dynamic bundle pricing.
  *
- * Cart attributes are used only for grouping, never for authorization.
- * The metafield must explicitly list every eligible child variant.
+ * Parent:
+ *   _parent=true
+ *   _set=<unique set id>
+ *   _bundleId=<same unique set id>
+ *
+ * Children:
+ *   _parent_product_id=<parent variant numeric id>
+ *   _set=<same unique set id>
+ *   _bundleId=<same unique set id>
+ *
+ * Child products are intentionally dynamic. No product metafield allow-list is
+ * required. Matching children receive a fixed per-unit price of 0.00.
  */
 function variantNumber(gid) {
   return typeof gid === 'string' && /^gid:\/\/shopify\/ProductVariant\/\d+$/.test(gid)
-    ? gid.split('/').pop() : null;
+    ? gid.split('/').pop()
+    : null;
 }
-function allowedVariants(parent) {
-  const raw = parent.merchandise?.product?.bundleChildren?.jsonValue;
-  if (!Array.isArray(raw) || raw.length === 0 || raw.length > 100) return null;
-  const variants = new Set();
-  for (const item of raw) {
-    const id = String(item);
-    const number = /^\d+$/.test(id) ? id : variantNumber(id);
-    if (!number) return null;
-    variants.add(number);
-  }
-  return variants;
-}
+
 export function run(input) {
   const lines = input?.cart?.lines || [];
   const parents = new Map();
+
   for (const line of lines) {
-    if (line.parentMarker?.value !== 'true' || !line.setId?.value ||
-        line.bundleId?.value !== line.setId.value ||
-        line.merchandise?.__typename !== 'ProductVariant' ||
-        !Number.isInteger(line.quantity) || line.quantity < 1) continue;
-    const id = variantNumber(line.merchandise.id);
-    const allowed = allowedVariants(line);
-    if (!id || !allowed || allowed.has(id)) continue;
-    const key = line.setId.value;
-    if (parents.has(key)) {
-      parents.set(key, null); // Duplicate parents invalidate the whole set.
+    if (
+      line.parentMarker?.value !== 'true' ||
+      !line.setId?.value ||
+      line.bundleId?.value !== line.setId.value ||
+      line.merchandise?.__typename !== 'ProductVariant' ||
+      !Number.isInteger(line.quantity) ||
+      line.quantity < 1
+    ) continue;
+
+    const parentId = variantNumber(line.merchandise.id);
+    if (!parentId) continue;
+
+    const setId = line.setId.value;
+    if (parents.has(setId)) {
+      // Ambiguous/duplicate parent: invalidate this set.
+      parents.set(setId, null);
     } else {
-      parents.set(key, {id, allowed, quantity: line.quantity});
+      parents.set(setId, {id: parentId, quantity: line.quantity});
     }
   }
+
   const operations = [];
+
   for (const line of lines) {
-    if (!line.parentVariantId?.value || !line.setId?.value ||
-        line.bundleId?.value !== line.setId.value ||
-        line.merchandise?.__typename !== 'ProductVariant') continue;
+    if (
+      !line.parentVariantId?.value ||
+      !line.setId?.value ||
+      line.bundleId?.value !== line.setId.value ||
+      line.merchandise?.__typename !== 'ProductVariant'
+    ) continue;
+
     const parent = parents.get(line.setId.value);
-    if (!parent || parent.id !== line.parentVariantId.value ||
-        line.quantity !== parent.quantity) continue;
+    if (
+      !parent ||
+      parent.id !== line.parentVariantId.value ||
+      line.quantity !== parent.quantity
+    ) continue;
+
     const childId = variantNumber(line.merchandise.id);
-    if (!childId || !parent.allowed.has(childId)) continue;
+    if (!childId || childId === parent.id) continue;
+
     operations.push({
       lineUpdate: {
         cartLineId: line.id,
-        price: {adjustment: {fixedPricePerUnit: {amount: '0.00'}}},
+        price: {
+          adjustment: {
+            fixedPricePerUnit: {
+              amount: '0.00',
+            },
+          },
+        },
       },
     });
   }
+
   return {operations};
 }
