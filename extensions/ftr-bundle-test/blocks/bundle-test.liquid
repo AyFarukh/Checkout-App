@@ -1,0 +1,98 @@
+{% liquid
+  assign parent = block.settings.parent_product
+  assign children = block.settings.child_products
+%}
+<div class="ftr-bundle-test" id="ftr-bundle-test-{{ block.id }}" data-ftr-bundle-builder>
+  <h2>{{ block.settings.heading | escape }}</h2>
+  {% if parent != blank and children != blank %}
+    {% assign parent_variant = parent.selected_or_first_available_variant %}
+    <div class="ftr-bundle-test__parent">
+      <strong>Bundle parent:</strong> {{ parent.title | escape }}
+      <span>{{ parent_variant.price | money }}</span>
+    </div>
+    <div class="ftr-bundle-test__children">
+      <strong>Included products:</strong>
+      {% for child in children %}
+        {% assign child_variant = child.selected_or_first_available_variant %}
+        <label class="ftr-bundle-test__child">
+          <input type="checkbox" data-ftr-child-id="{{ child_variant.id }}" {% if child_variant.available %}checked{% else %}disabled{% endif %}>
+          {{ child.title | escape }} <span>Included (target: free)</span>
+        </label>
+      {% endfor %}
+    </div>
+    <button type="button" data-ftr-add {% unless parent_variant.available %}disabled{% endunless %}>{{ block.settings.button_label | escape }}</button>
+    <p role="status" aria-live="polite" data-ftr-status></p>
+    <script type="application/json" data-ftr-config>
+      {"parentVariantId":{{ parent_variant.id | json }},"cartUrl":{{ routes.cart_url | json }},"cartAddUrl":{{ routes.cart_add_url | json }},"checkoutUrl":{{ routes.root_url | append: 'checkout' | json }}}
+    </script>
+  {% else %}
+    <p>Select a parent product and at least one child product in the theme editor.</p>
+  {% endif %}
+</div>
+<style>
+#ftr-bundle-test-{{ block.id }} {max-width:760px;margin:24px auto;padding:24px;border:1px solid #ddd;border-radius:12px}
+#ftr-bundle-test-{{ block.id }} h2 {margin:0 0 18px}
+#ftr-bundle-test-{{ block.id }} .ftr-bundle-test__parent {display:flex;gap:12px;justify-content:space-between;padding:14px 0;border-bottom:1px solid #eee}
+#ftr-bundle-test-{{ block.id }} .ftr-bundle-test__child {display:flex;gap:12px;align-items:center;padding:10px 0}
+#ftr-bundle-test-{{ block.id }} .ftr-bundle-test__child span {margin-left:auto;font-size:.85em;opacity:.7}
+#ftr-bundle-test-{{ block.id }} button {padding:12px 20px;border:0;background:#161616;color:#fff;cursor:pointer;border-radius:6px}
+#ftr-bundle-test-{{ block.id }} button:disabled {opacity:.5;cursor:not-allowed}
+</style>
+<script>
+(() => {
+  const root = document.getElementById('ftr-bundle-test-{{ block.id }}');
+  if (!root || root.dataset.initialized === 'true') return;
+  root.dataset.initialized = 'true';
+  const config = JSON.parse(root.querySelector('[data-ftr-config]')?.textContent || '{}');
+  const button = root.querySelector('[data-ftr-add]');
+  const status = root.querySelector('[data-ftr-status]');
+  if (!button) return;
+  button.addEventListener('click', async () => {
+    const children = [...root.querySelectorAll('[data-ftr-child-id]:checked')].map((el) => String(el.dataset.ftrChildId));
+    if (!children.length) { status.textContent = 'Select at least one child product.'; return; }
+    if (!config.parentVariantId) return;
+    button.disabled = true;
+    status.textContent = 'Adding bundle to cart...';
+    const setId = 'set-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2));
+    const parentId = String(config.parentVariantId);
+    const items = [{
+      id: Number(parentId), quantity: 1,
+      properties: {
+        _parent: 'true',
+        _set: setId,
+        _bundleId: setId,
+        content: children.length + ' included product(s)'
+      }
+    }, ...children.map((id) => ({
+      id: Number(id), quantity: 1,
+      properties: {_parent_product_id: parentId, _set: setId, _bundleId: setId}
+    }))];
+    try {
+      const response = await fetch(config.cartAddUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+        body: JSON.stringify({items})
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.description || result.message || 'Unable to add bundle');
+      status.textContent = 'Bundle added. Redirecting to cart...';
+      window.location.assign(config.cartUrl);
+    } catch (error) {
+      status.textContent = error.message || 'Could not add bundle.';
+      button.disabled = false;
+    }
+  });
+})();
+</script>
+{% schema %}
+{
+  "name": "FTR Bundle Test",
+  "target": "section",
+  "settings": [
+    {"type":"text","id":"heading","label":"Heading","default":"Build your test bundle"},
+    {"type":"product","id":"parent_product","label":"Bundle parent product"},
+    {"type":"product_list","id":"child_products","label":"Included child products","limit":20},
+    {"type":"text","id":"button_label","label":"Button text","default":"Add bundle to cart"}
+  ]
+}
+{% endschema %}
