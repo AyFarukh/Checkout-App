@@ -1,0 +1,18 @@
+query RunInput {
+  cart {
+    lines {
+      id
+      quantity
+      parentMarker: attribute(key: "_parent") { value }
+      setId: attribute(key: "_set") { value }
+      bundleId: attribute(key: "_bundleId") { value }
+      parentVariantId: attribute(key: "_parent_product_id") { value }
+      merchandise {
+        __typename
+        ... on ProductVariant {
+          id
+        }
+      }
+    }
+  }
+}
