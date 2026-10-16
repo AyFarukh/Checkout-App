@@ -14,8 +14,8 @@ description = "t:description"
   export = "run"
 
   [extensions.build]
-  command = ""
-  path = "dist/function.wasm"
+  path = "dist/index.wasm"
+  watch = [ "src/**/*.ts", "src/**/*.graphql" ]
 
   [extensions.ui.paths]
   create = "/"
