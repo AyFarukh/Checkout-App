@@ -14,6 +14,7 @@ description = "t:description"
   export = "cart-transform-run"
 
   [extensions.build]
+  typegen_command = "node scripts/typegen-noop.js"
   path = "dist/index.wasm"
   watch = [ "src/**/*.ts", "src/**/*.graphql" ]
 
