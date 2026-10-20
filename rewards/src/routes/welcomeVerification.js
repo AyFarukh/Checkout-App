@@ -74,7 +74,7 @@ welcomeVerification.post("/", requireDatabase, async (req,res) => {
       console.info("[Welcome verifier] Loop lookup starting", {mode, customerIdAvailable:Boolean(customers.find(x=>Number(x.numberOfOrders)>0)?.id)});
       const active = await hasActiveLoopSubscription(email);
       console.info("[Welcome verifier] Loop lookup completed", {active});
-      return res.json({eligible:!active});
+      return res.json({eligible:!active, activeSubscription:active});
     }
     return res.json({eligible:customers.length===0 || customers.every(x=>Number(x.numberOfOrders)===0)});
   }catch(e){console.error("[Welcome verifier]",e.message);return res.status(503).json({error:"Verification unavailable"});}
