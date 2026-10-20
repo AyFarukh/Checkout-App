@@ -35,3 +35,8 @@ uri = "/webhooks/customers-create"
 
 [build]
 automatically_update_urls_on_dev = false
+
+[app_proxy]
+url = "https://freetheroots-rewards-system.fly.dev/apps/ftr-welcome"
+subpath = "ftr-welcome"
+prefix = "apps"
