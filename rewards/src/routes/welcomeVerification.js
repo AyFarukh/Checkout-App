@@ -4,6 +4,7 @@ import { requireDatabase } from "../config/db.js";
 import { ShopifyOfflineToken } from "../models/ShopifyOfflineToken.js";
 import { shopifyAdminGraphql } from "../services/shopify-admin.service.js";
 import { getCustomerLoopSubscriptions } from "../services/loop-subscriptions.service.js";
+import { enrichSubscriptionImages } from "../services/subscription-images.service.js";
 
 export const welcomeVerification = Router();
 const attempts = new Map();
@@ -90,7 +91,8 @@ welcomeVerification.get("/subscriptions", requireDatabase, async (req, res) => {
   try {
     if (!await ShopifyOfflineToken.exists({ shop })) return res.status(403).json({ ok: false, message: "Store authorization required." });
     const subscriptions = await getCustomerLoopSubscriptions(customerId);
-    return res.json({ ok: true, mode: "read-only", mutationsEnabled: false, subscriptions });
+    const enriched = await enrichSubscriptionImages(shop, subscriptions);
+    return res.json({ ok: true, mode: "read-only", mutationsEnabled: false, subscriptions: enriched });
   } catch (error) {
     console.error("[Storefront subscriptions]", error.message);
     return res.status(503).json({ ok: false, message: "Subscription details are temporarily unavailable." });
