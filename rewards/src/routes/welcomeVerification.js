@@ -27,7 +27,7 @@ welcomeVerification.post("/", requireDatabase, async (req,res) => {
   if (email.length>254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({error:"Invalid email"});
   // Resolve the installed shop from the signed app proxy request, never from the email payload.
   const shop = String(req.query.shop || "").trim().toLowerCase();
-  if (!/^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$/.test(shop)) return res.status(403).json({error:"Invalid shop"});
+  if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop)) return res.status(403).json({error:"Invalid shop"});
   // Restrict lookups to stores already authorized in the Rewards token store.
   const installation = await ShopifyOfflineToken.exists({shop});
   if (!installation) return res.status(503).json({error:"Shop authorization required"});
