@@ -1,0 +1,23 @@
+api_version = "2026-07"
+
+[[extensions]]
+name = "t:name"
+handle = "cart-grouped-merge"
+uid = "a96fabc5-8a68-4d91-01aa-811dce5149496a867fc7"
+type = "function"
+
+description = "t:description"
+
+  [[extensions.targeting]]
+  target = "cart.transform.run"
+  input_query = "src/run.graphql"
+  export = "cart-transform-run"
+
+  [extensions.build]
+  typegen_command = "node scripts/typegen-noop.js"
+  path = "dist/index.wasm"
+  watch = [ "src/**/*.ts", "src/**/*.graphql" ]
+
+  [extensions.ui.paths]
+  create = "/"
+  details = "/"

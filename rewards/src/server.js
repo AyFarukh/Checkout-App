@@ -4,16 +4,245 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import cors from "cors";
-import { connectDatabaseWithRetry, databaseHealth, requireDatabase } from "./config/db.js";
+import {
+  connectDatabaseWithRetry,
+  databaseHealth,
+  requireDatabase,
+} from "./config/db.js";
 import { adminApi } from "./routes/adminApi.js";
 import { customerApi } from "./routes/customerApi.js";
 import { webhookRouter } from "./routes/webhooks.js";
 import { shopifyToken } from "./routes/shopifyToken.js";
 import { subscriptionApi } from "./routes/subscriptionApi.js";
+import { welcomeVerification } from "./routes/welcomeVerification.js";
 import { processRewardSyncJobs } from "./services/shopify-sync.service.js";
 import { releaseExpiredRedemptions } from "./services/redemption.service.js";
 import { processWebhookJobs } from "./services/webhook-worker.service.js";
 import { processCustomerRewardsMirrorRetries } from "./services/shopify-customer-rewards-mirror.service.js";
 import { errorHandler, requestId } from "./middleware/errorHandler.js";
-const __filename=fileURLToPath(import.meta.url),__dirname=path.dirname(__filename),publicDir=path.resolve(__dirname,"../public"),app=express(),port=Number(process.env.PORT||process.env.FRONTEND_PORT||3100);let workersRunning=false;
-app.disable("x-powered-by");app.use(requestId);app.use("/webhooks",express.raw({type:"application/json",limit:"1mb"}),requireDatabase,webhookRouter);app.use(express.json({limit:"256kb"}));app.get("/subscription-portal",(_req,res)=>res.sendFile(path.join(publicDir,"subscription-portal","index.html")));app.get("/subscription-portal/",(_req,res)=>res.sendFile(path.join(publicDir,"subscription-portal","index.html")));app.use(express.static(publicDir,{index:false}));app.get("/health",(_req,res)=>{const database=databaseHealth();res.status(database.status==="connected"?200:503).json({ok:database.status==="connected",service:"freetheroot-rewards-admin",database})});app.use("/api/admin",requireDatabase,adminApi);app.use("/api/shopify-token",requireDatabase,shopifyToken);app.use("/api/customer",cors({origin:"*",methods:["GET","POST","OPTIONS"],allowedHeaders:["Authorization","Content-Type","Idempotency-Key","X-Request-Id"]}),requireDatabase,customerApi);app.use("/api/subscriptions",cors({origin:"*",methods:["GET","OPTIONS"],allowedHeaders:["Authorization","Content-Type","X-Request-Id"]}),requireDatabase,subscriptionApi);app.get(/^(?!\/api\/|\/health$|\/webhooks\/).*/,async(_req,res,next)=>{try{const template=await fs.readFile(path.join(publicDir,"index.html"),"utf8");const html=template.replaceAll("%SHOPIFY_API_KEY%",process.env.SHOPIFY_API_KEY||"").replace("</head>",'<link rel="stylesheet" href="/customers.css"/></head>').replace("</body>",'<script src="/shopify-token-bootstrap.js" defer></script><script src="/customers.js" defer></script><script src="/rewards-sync-refresh.js" defer></script></body>');res.type("html").send(html)}catch(error){next(error)}});app.use(errorHandler);app.listen(port,"0.0.0.0",()=>{console.log(`[Rewards Admin] embedded app home running on port ${port}`);connectDatabaseWithRetry()});setInterval(async()=>{if(databaseHealth().status!=="connected"||workersRunning)return;workersRunning=true;try{await processWebhookJobs();await processRewardSyncJobs();await releaseExpiredRedemptions();await processCustomerRewardsMirrorRetries()}catch(error){console.error("[Rewards Worker]",error)}finally{workersRunning=false}},5000).unref();
+const __filename = fileURLToPath(import.meta.url),
+  __dirname = path.dirname(__filename),
+  publicDir = path.resolve(__dirname, "../public"),
+  app = express(),
+  port = Number(process.env.PORT || process.env.FRONTEND_PORT || 3100);
+let workersRunning = false;
+app.disable("x-powered-by");
+app.use(requestId);
+app.use(
+  "/webhooks",
+  express.raw({ type: "application/json", limit: "1mb" }),
+  requireDatabase,
+  webhookRouter,
+);
+app.use(express.json({ limit: "256kb" }));
+app.get("/subscription-portal", (_req, res) =>
+  res.sendFile(path.join(publicDir, "subscription-portal", "index.html")),
+);
+app.get("/subscription-portal/", (_req, res) =>
+  res.sendFile(path.join(publicDir, "subscription-portal", "index.html")),
+);
+app.use(express.static(publicDir, { index: false }));
+app.get("/health", (_req, res) => {
+  const database = databaseHealth();
+  res
+    .status(database.status === "connected" ? 200 : 503)
+    .json({
+      ok: database.status === "connected",
+      service: "freetheroot-rewards-admin",
+      database,
+    });
+});
+app.use("/api/admin", requireDatabase, adminApi);
+app.use("/api/shopify-token", requireDatabase, shopifyToken);
+app.use(
+  "/api/customer",
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: [
+      "Authorization",
+      "Content-Type",
+      "Idempotency-Key",
+      "X-Request-Id",
+    ],
+  }),
+  requireDatabase,
+  customerApi,
+);
+app.use(
+  "/api/subscriptions",
+  cors({
+    origin: "*",
+    methods: ["GET", "OPTIONS"],
+    allowedHeaders: ["Authorization", "Content-Type", "X-Request-Id"],
+  }),
+  requireDatabase,
+  subscriptionApi,
+);
+app.get(/^(?!\/api\/|\/health$|\/webhooks\/).*/, async (_req, res, next) => {
+  try {
+    const template = await fs.readFile(
+      path.join(publicDir, "index.html"),
+      "utf8",
+    );
+    const html = template
+      .replaceAll("%SHOPIFY_API_KEY%", process.env.SHOPIFY_API_KEY || "")
+      .replace(
+        "</head>",
+        '<link rel="stylesheet" href="/customers.css"/></head>',
+      )
+      .replace(
+        "</body>",
+        '<script src="/shopify-token-bootstrap.js" defer></script><script src="/customers.js" defer></script><script src="/rewards-sync-refresh.js" defer></script></body>',
+      );
+    res.type("html").send(html);
+  } catch (error) {
+    next(error);
+  }
+});
+app.use(errorHandler);
+app.listen(port, "0.0.0.0", () => {
+  console.log(`[Rewards Admin] embedded app home running on port ${port}`);
+  connectDatabaseWithRetry();
+});
+setInterval(async () => {
+  if (databaseHealth().status !== "connected" || workersRunning) return;
+  workersRunning = true;
+  try {
+    await processWebhookJobs();
+    await processRewardSyncJobs();
+    await releaseExpiredRedemptions();
+    await processCustomerRewardsMirrorRetries();
+  } catch (error) {
+    console.error("[Rewards Worker]", error);
+  } finally {
+    workersRunning = false;
+  }
+}, 5000).unref();
+app.disable("x-powered-by");
+
+app.use(requestId);
+
+// Shopify webhooks
+app.use(
+  "/webhooks",
+  express.raw({ type: "application/json", limit: "1mb" }),
+  requireDatabase,
+  webhookRouter,
+);
+
+app.use(express.json({ limit: "256kb" }));
+
+// FreeTheRoots subscription portal
+app.get(["/subscription-portal", "/subscription-portal/"], (_req, res) => {
+  res.sendFile(path.join(publicDir, "subscription-portal", "index.html"));
+});
+
+// Static files
+app.use(express.static(publicDir, { index: false }));
+
+// Health check
+app.get("/health", (_req, res) => {
+  const database = databaseHealth();
+
+  res.status(database.status === "connected" ? 200 : 503).json({
+    ok: database.status === "connected",
+    service: "freetheroot-rewards-admin",
+    database,
+  });
+});
+
+// Rewards V1 — Welcome Verification
+app.use("/apps/ftr-welcome", welcomeVerification);
+
+// Existing Rewards admin API
+app.use("/api/admin", requireDatabase, adminApi);
+
+// Shopify authentication
+app.use("/api/shopify-token", requireDatabase, shopifyToken);
+
+// Rewards customer API
+app.use(
+  "/api/customer",
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: [
+      "Authorization",
+      "Content-Type",
+      "Idempotency-Key",
+      "X-Request-Id",
+    ],
+  }),
+  requireDatabase,
+  customerApi,
+);
+
+// FreeTheRoots Loop Subscription API
+app.use(
+  "/api/subscriptions",
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Authorization", "Content-Type", "X-Request-Id"],
+  }),
+  requireDatabase,
+  subscriptionApi,
+);
+
+// Existing Rewards embedded admin application
+app.get(/^(?!\/api\/|\/health$|\/webhooks\/).*/, async (_req, res, next) => {
+  try {
+    const template = await fs.readFile(
+      path.join(publicDir, "index.html"),
+      "utf8",
+    );
+
+    const html = template
+      .replaceAll("%SHOPIFY_API_KEY%", process.env.SHOPIFY_API_KEY || "")
+      .replace(
+        "</head>",
+        '<link rel="stylesheet" href="/customers.css"/></head>',
+      )
+      .replace(
+        "</body>",
+        '<script src="/shopify-token-bootstrap.js" defer></script>' +
+          '<script src="/customers.js" defer></script>' +
+          '<script src="/rewards-sync-refresh.js" defer></script></body>',
+      );
+
+    res.type("html").send(html);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Error handling
+app.use(errorHandler);
+
+// Start server
+app.listen(port, "0.0.0.0", () => {
+  console.log(`[Rewards Admin] embedded app home running on port ${port}`);
+
+  connectDatabaseWithRetry();
+});
+
+// Existing Rewards background workers
+setInterval(async () => {
+  if (databaseHealth().status !== "connected" || workersRunning) {
+    return;
+  }
+
+  workersRunning = true;
+
+  try {
+    await processWebhookJobs();
+    await processRewardSyncJobs();
+    await releaseExpiredRedemptions();
+    await processCustomerRewardsMirrorRetries();
+  } catch (error) {
+    console.error("[Rewards Worker]", error);
+  } finally {
+    workersRunning = false;
+  }
+}, 5000).unref();

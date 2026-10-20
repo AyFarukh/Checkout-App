@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { shopifyAdminGraphql } from "../services/shopify-admin.service.js";
 import { customerAuth } from "../middleware/customerAuth.js";
 import { RewardCustomer } from "../models/RewardCustomer.js";
 import { PointsTransaction } from "../models/PointsTransaction.js";
@@ -26,8 +27,23 @@ customerApi.get("/me", async (req, res, next) => {
       PointsTransaction.find({ shop, shopifyCustomerId }).sort({ createdAt: -1 }).limit(50).select("type points balanceAfter source reason createdAt rewardId shopifyOrderId").lean(),
       Redemption.find({ shop, shopifyCustomerId }).sort({ createdAt: -1 }).limit(20).select("-tokenHash").lean(),
     ]);
+    // Resolve missing customer names from Shopify; never block rewards if Shopify is unavailable.
+    let resolvedCustomer = customer || { shopifyCustomerId, pointsBalance: 0, pointsReserved: 0, lifetimeEarned: 0, lifetimeRedeemed: 0, tier: "Member" };
+    if (!String(resolvedCustomer.firstName || "").trim()) {
+      try {
+        const profile = await shopifyAdminGraphql(shop, `query RewardsCustomerName($id: ID!) { customer(id: $id) { firstName lastName } }`, { id: shopifyCustomerId });
+        const firstName = String(profile?.customer?.firstName || "").trim();
+        const lastName = String(profile?.customer?.lastName || "").trim();
+        if (firstName) {
+          resolvedCustomer = { ...resolvedCustomer, firstName, lastName };
+          await RewardCustomer.updateOne({ shop, shopifyCustomerId }, { $set: { firstName, lastName } });
+        }
+      } catch (error) {
+        console.warn("[Rewards Customer] name lookup unavailable", { shop, message: error?.message });
+      }
+    }
     res.json({
-      customer: customer || { shopifyCustomerId, pointsBalance: 0, pointsReserved: 0, lifetimeEarned: 0, lifetimeRedeemed: 0, tier: "Member" },
+      customer: resolvedCustomer,
       rewards,
       rules,
       activity,
