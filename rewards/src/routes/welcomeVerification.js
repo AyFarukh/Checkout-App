@@ -58,14 +58,17 @@ welcomeVerification.post("/", requireDatabase, async (req,res) => {
   const installation = await ShopifyOfflineToken.exists({shop});
   if (!installation) return res.status(503).json({error:"Shop authorization required"});
   try {
-    const query = `query($query:String!){customers(first:2,query:$query){nodes{email numberOfOrders}}}`;
+    const query = `query($query:String!){customers(first:20,query:$query){nodes{id email numberOfOrders}}}`;
     const data = await shopifyAdminGraphql(shop, query, {query:`email:"${email.replace(/["\\\\]/g,"")}"`});
     if (!Array.isArray(data?.customers?.nodes)) throw Error("Customer lookup unavailable");
-    const customers=data.customers.nodes.filter(x=>x.email?.toLowerCase()===email);
+    const customers=data.customers.nodes.filter(x=>x.email?.trim().toLowerCase()===email);
+    console.info("[Welcome verifier] customer lookup", {mode, returned:data.customers.nodes.length, exactMatches:customers.length, hasPreviousOrder:customers.some(x=>Number(x.numberOfOrders)>0)});
     if (mode === "returning_subscription") {
       // Returning offer requires a real Shopify customer with at least one order.
       if (!customers.some(x => Number(x.numberOfOrders) > 0)) return res.json({eligible:false});
+      console.info("[Welcome verifier] Loop lookup starting", {mode, customerIdAvailable:Boolean(customers.find(x=>Number(x.numberOfOrders)>0)?.id)});
       const active = await hasActiveLoopSubscription(email);
+      console.info("[Welcome verifier] Loop lookup completed", {active});
       return res.json({eligible:!active});
     }
     return res.json({eligible:customers.length===0 || customers.every(x=>Number(x.numberOfOrders)===0)});
