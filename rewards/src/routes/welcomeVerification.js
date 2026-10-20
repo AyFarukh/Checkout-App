@@ -85,8 +85,8 @@ welcomeVerification.get("/subscriptions", requireDatabase, async (req, res) => {
   if (!signed(req.query)) return res.status(403).json({ ok: false, message: "Invalid storefront signature." });
   const shop = String(req.query.shop || "").toLowerCase();
   const customerId = String(req.query.logged_in_customer_id || "");
-  if (!/^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$/.test(shop)) return res.status(403).json({ ok: false, message: "Invalid shop." });
-  if (!/^\\d+$/.test(customerId)) return res.status(401).json({ ok: false, message: "Please sign in to view your subscription." });
+  if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop)) return res.status(403).json({ ok: false, message: "Invalid shop." });
+  if (!/^\d+$/.test(customerId)) return res.status(401).json({ ok: false, message: "Please sign in to view your subscription." });
   try {
     if (!await ShopifyOfflineToken.exists({ shop })) return res.status(403).json({ ok: false, message: "Store authorization required." });
     const subscriptions = await getCustomerLoopSubscriptions(customerId);
