@@ -22,13 +22,35 @@ function SubscriptionPage(){
  const lines=extractLines(s),cur=pick(s,'currencyCode','currency')||pick(s?.currency,'code')||'USD',next=billingDate(s),freq=s.billingPolicy||s.frequency||{},addr=s.shippingAddress||s.deliveryAddress||{};
  const linePrice=l=>numeric(pick(l,'discountedPrice','price','sellingPrice','linePrice','amount','unitPrice'))??numeric(l?.pricing?.price);
  const total=numeric(pick(s,'totalLineItemDiscountedPrice','totalLineItemPrice','totalPrice','subtotalPrice','price','billingAmount','nextOrderTotal'))??(lines.length&&lines.every(l=>linePrice(l)!=null)?lines.reduce((n,l)=>n+linePrice(l)*Number(l.quantity||1),0):null);
- const button=(id,label,tone)=>e('s-button',{key:id,variant:tone||'secondary',onClick:()=>requestAction(id,label)},label);
- return e('s-page',{heading:'My Subscription'},e('s-stack',{direction:'block',gap:'base'},
-  e('s-banner',{tone:'success'},e('s-stack',{direction:'block',gap:'small'},e('s-heading',null,`Your subscription is ${String(s.status||'active').toLowerCase()}`),e('s-text',null,'Manage your subscription, update your details, and more.'))),
-  e('s-section',{heading:'Next order'},e('s-stack',{direction:'block',gap:'base'},e('s-heading',null,date(next)),e('s-heading',null,total==null?'Total unavailable':money(total,cur)),...lines.slice(0,5).map((l,i)=>e('s-box',{key:l.id||i,padding:'base',border:'base'},e('s-stack',{direction:'inline',gap:'base'},imageSrc(pick(l,'imageUrl','image','productImage','imageSrc'))?e('s-image',{src:imageSrc(pick(l,'imageUrl','image','productImage','imageSrc')),alt:pick(l,'productTitle','title','name')||'Product'}):null,e('s-stack',{direction:'block',gap:'small'},e('s-heading',null,pick(l,'productTitle','title','name')||'Subscription product'),e('s-text',null,`Qty ${l.quantity||1} · ${(linePrice(l)==null?'Price unavailable':money(linePrice(l),cur))}`))))),e('s-stack',{direction:'inline',gap:'small'},button('manage','Manage next order','primary'),button('order','Order now'),button('gift','Gift'),button('skip','Skip'),button('reschedule','Reschedule'),button('delay','Delay')))),
-  e('s-section',{heading:'Your subscription'},e('s-stack',{direction:'block',gap:'small'},e('s-text',null,`Status: ${s.status||'Unknown'}`),e('s-text',null,`Deliver every ${freq.intervalCount||freq.interval_count||1} ${String(freq.interval||'month').toLowerCase()}`),button('products','Edit products'),button('frequency','Change frequency'),button('next','Change next order'),button('pause','Pause subscription'),button('cancel','Cancel subscription'))),
-  e('s-section',{heading:'Payment details'},e('s-stack',{direction:'block',gap:'small'},e('s-text',null,'Payment method is securely managed by Shopify and Loop.'),button('payment','Update payment method'))),
-  e('s-section',{heading:'Shipping address'},e('s-stack',{direction:'block',gap:'small'},e('s-text',null,[addr.firstName,addr.lastName,addr.address1,addr.address2,addr.city,addr.province,addr.zip,addr.country].filter(Boolean).join(', ')||'No shipping address available.'),button('address','Edit address'))),
-  pending?e('s-section',{heading:'Confirm '+pending.label},e('s-stack',{direction:'block',gap:'small'},e('s-banner',{tone:'warning'},e('s-text',null,'You selected '+pending.label+'. This action could change your subscription. Changes are currently disabled while we verify the integration on a test subscription. No change has been made.')),e('s-button',{variant:'secondary',onClick:dismissAction},'Close confirmation'))):null,
-  e('s-banner',{tone:'info'},e('s-text',null,'Safety mode is active. Subscription changes are disabled. You can review an action, but no changes will be submitted to Loop.'))
+ const button=(id,label,tone)=>e('s-button',{key:id,variant:tone||'secondary',onClick:()=>id==='dismiss'?dismissAction():requestAction(id,label)},label);
+ const product=(l,i)=>e('s-box',{key:l.id||i,padding:'base',border:'base',borderRadius:'base'},e('s-stack',{direction:'inline',gap:'base',alignItems:'center'},imageSrc(pick(l,'imageUrl','image','productImage','imageSrc'))?e('s-image',{src:imageSrc(pick(l,'imageUrl','image','productImage','imageSrc')),alt:pick(l,'productTitle','title','name')||'Product'}):null,e('s-stack',{direction:'block',gap:'small'},e('s-heading',null,pick(l,'productTitle','title','name')||'Subscription product'),e('s-text',null,'Quantity: '+(l.quantity||1)),e('s-text',null,linePrice(l)==null?'Price unavailable':money(linePrice(l),cur)))));
+ const actions=(items)=>e('s-stack',{direction:'inline',gap:'small'},...items.map(([id,label,tone])=>button(id,label,tone)));
+ const panel=(heading,...children)=>e('s-section',{heading},e('s-stack',{direction:'block',gap:'base'},...children));
+ return e('s-page',{heading:settings.page_title||'My Subscription'},e('s-stack',{direction:'block',gap:'base'},
+  e('s-banner',{tone:'success'},e('s-stack',{direction:'block',gap:'small'},e('s-heading',null,'Your subscription is '+String(s.status||'active').toLowerCase()),e('s-text',null,'Manage your subscription, update your details, and more.'))),
+  panel('NEXT ORDER',
+    e('s-heading',null,date(next)),
+    e('s-heading',null,total==null?'Total unavailable':money(total,cur)),
+    e('s-text',null,'Your next delivery'),
+    ...lines.slice(0,5).map(product),
+    actions([['manage','Manage next order','primary'],['order','Order now'],['gift','Gift'],['skip','Skip'],['reschedule','Reschedule'],['delay','Delay']])
+  ),
+  e('s-grid',{gridTemplateColumns:'repeat(2, minmax(0, 1fr))',gap:'base'},
+    panel('YOUR SUBSCRIPTION',
+      e('s-text',null,'Status: '+(s.status||'Unknown')),
+      e('s-text',null,'Deliver every '+(freq.intervalCount||freq.interval_count||1)+' '+String(freq.interval||'month').toLowerCase()),
+      ...lines.slice(0,3).map(product),
+      actions([['products','Edit products'],['frequency','Change frequency'],['next','Change next order']])
+    ),
+    e('s-stack',{direction:'block',gap:'base'},
+      panel('PAYMENT DETAILS',e('s-text',null,'Your payment method is securely managed by Shopify and Loop.'),button('payment','Update payment method','primary')),
+      panel('SHIPPING ADDRESS',e('s-text',null,[addr.firstName,addr.lastName,addr.address1,addr.address2,addr.city,addr.province,addr.zip,addr.country].filter(Boolean).join(', ')||'No shipping address available.'),button('address','Edit address'))
+    )
+  ),
+  panel('MANAGE YOUR SUBSCRIPTION',
+    e('s-text',null,'Need to make a change? You are in control.'),
+    actions([['products','Edit products'],['frequency','Change frequency'],['next','Change next order'],['skip','Skip next order'],['pause','Pause subscription'],['cancel','Cancel subscription']])
+  ),
+  pending?panel('Confirm '+pending.label,e('s-banner',{tone:'warning'},e('s-text',null,'You selected '+pending.label+'. This action could change your subscription. Changes remain disabled while test-account protection is implemented. No change has been made.')),button('dismiss','Close confirmation')):null,
+  e('s-banner',{tone:'info'},e('s-text',null,'Preview mode: subscription-changing actions are disabled until test-only safeguards and Loop endpoints are verified.'))
  ))}
