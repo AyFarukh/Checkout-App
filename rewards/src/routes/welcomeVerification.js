@@ -3,10 +3,11 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { requireDatabase } from "../config/db.js";
 import { ShopifyOfflineToken } from "../models/ShopifyOfflineToken.js";
 import { shopifyAdminGraphql } from "../services/shopify-admin.service.js";
+import { getCustomerLoopSubscriptions } from "../services/loop-subscriptions.service.js";
 
 export const welcomeVerification = Router();
 const attempts = new Map();
-function signed(query) {
+export function signed(query) {
   const secret = process.env.SHOPIFY_API_SECRET || process.env.SHOPIFY_API_SECRET_KEY;
   const sig = query.signature;
   if (!secret || typeof sig !== "string" || !/^[a-f0-9]{64}$/i.test(sig)) return false;
@@ -73,4 +74,25 @@ welcomeVerification.post("/", requireDatabase, async (req,res) => {
     }
     return res.json({eligible:customers.length===0 || customers.every(x=>Number(x.numberOfOrders)===0)});
   }catch(e){console.error("[Welcome verifier]",e.message);return res.status(503).json({error:"Verification unavailable"});}
+});
+
+ 
+// Storefront subscription dashboard: served through the EXISTING Shopify app proxy.
+// Shopify signs logged_in_customer_id. Never accept customer IDs from the browser body.
+welcomeVerification.get("/subscriptions", requireDatabase, async (req, res) => {
+  res.set("Cache-Control", "private, no-store");
+  res.set("X-Content-Type-Options", "nosniff");
+  if (!signed(req.query)) return res.status(403).json({ ok: false, message: "Invalid storefront signature." });
+  const shop = String(req.query.shop || "").toLowerCase();
+  const customerId = String(req.query.logged_in_customer_id || "");
+  if (!/^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$/.test(shop)) return res.status(403).json({ ok: false, message: "Invalid shop." });
+  if (!/^\\d+$/.test(customerId)) return res.status(401).json({ ok: false, message: "Please sign in to view your subscription." });
+  try {
+    if (!await ShopifyOfflineToken.exists({ shop })) return res.status(403).json({ ok: false, message: "Store authorization required." });
+    const subscriptions = await getCustomerLoopSubscriptions(customerId);
+    return res.json({ ok: true, mode: "read-only", mutationsEnabled: false, subscriptions });
+  } catch (error) {
+    console.error("[Storefront subscriptions]", error.message);
+    return res.status(503).json({ ok: false, message: "Subscription details are temporarily unavailable." });
+  }
 });
