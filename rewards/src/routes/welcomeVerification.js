@@ -80,6 +80,41 @@ welcomeVerification.post("/", requireDatabase, async (req,res) => {
  
 // Storefront subscription dashboard: served through the EXISTING Shopify app proxy.
 // Shopify signs logged_in_customer_id. Never accept customer IDs from the browser body.
+// Test-only action validation. Never sends writes to Loop.
+welcomeVerification.post("/subscriptions/action-preview", requireDatabase, async (req,res) => {
+  res.set("Cache-Control","no-store");
+  if (!signed(req.query)) return res.status(403).json({ok:false,message:"Invalid storefront signature."});
+  const shop=String(req.query.shop||"").toLowerCase();
+  const customerId=String(req.query.logged_in_customer_id||"");
+  if (!/^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$/.test(shop)||!/^\\d+$/.test(customerId))
+    return res.status(401).json({ok:false,message:"Sign in required."});
+  if (!await ShopifyOfflineToken.exists({shop})) return res.status(403).json({ok:false,message:"Store authorization required."});
+  const allowCustomer=String(process.env.LOOP_TEST_CUSTOMER_ID||"");
+  const allowSubscription=String(process.env.LOOP_TEST_SUBSCRIPTION_ID||"");
+  if (!allowCustomer||!allowSubscription||customerId!==allowCustomer)
+    return res.status(403).json({ok:false,message:"Only the configured test customer can preview subscription changes."});
+  const action=String(req.body?.action||"");
+  const supported=new Set(["skip","reschedule","delay","order-now","gift","frequency","pause","cancel","edit-products","edit-address","discount","order-note"]);
+  if (!supported.has(action)) return res.status(400).json({ok:false,message:"Unsupported action."});
+  const subscriptionId=String(req.body?.subscriptionId||"");
+  if (subscriptionId!==allowSubscription) return res.status(403).json({ok:false,message:"Only the configured test subscription is allowed."});
+  try {
+    const subscriptions=await getCustomerLoopSubscriptions(customerId);
+    if (!subscriptions.some(item=>[item.id,item.shopifyId,item.subscriptionId].some(id=>String(id||"")===subscriptionId)))
+      return res.status(403).json({ok:false,message:"Subscription ownership could not be verified."});
+    const payload=req.body?.payload;
+    if (!payload||typeof payload!=="object"||Array.isArray(payload)||JSON.stringify(payload).length>2000)
+      return res.status(400).json({ok:false,message:"Invalid action details."});
+    if (action==="reschedule" && (!/^\\d{4}-\\d{2}-\\d{2}$/.test(String(payload.date||""))||Date.parse(payload.date)<Date.now()-86400000))
+      return res.status(400).json({ok:false,message:"Select a valid future date."});
+    if (action==="delay" && ![7,14,30].includes(Number(payload.days)))
+      return res.status(400).json({ok:false,message:"Select 7, 14 or 30 days."});
+    if (action==="frequency" && (![1,2,3,4,6].includes(Number(payload.intervalCount))||!["WEEK","MONTH"].includes(payload.interval)))
+      return res.status(400).json({ok:false,message:"Invalid frequency."});
+    return res.json({ok:true,preview:true,applied:false,message:"Action validated for test customer. No changes were sent to Loop.",action});
+  }catch(error){console.error("[Subscription action preview]",error.message);return res.status(503).json({ok:false,message:"Unable to validate subscription ownership."});}
+});
+
 welcomeVerification.get("/subscriptions", requireDatabase, async (req, res) => {
   res.set("Cache-Control", "private, no-store");
   res.set("X-Content-Type-Options", "nosniff");
