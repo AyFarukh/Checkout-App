@@ -74,3 +74,42 @@ welcomeVerification.post("/", requireDatabase, async (req,res) => {
     return res.json({eligible:customers.length===0 || customers.every(x=>Number(x.numberOfOrders)===0)});
   }catch(e){console.error("[Welcome verifier]",e.message);return res.status(503).json({error:"Verification unavailable"});}
 });
+
+/**
+ * Read-only Shopify app-proxy action validation.
+ * Shopify signs the proxy query and provides logged_in_customer_id.
+ * No Loop write endpoint is called here.
+ */
+welcomeVerification.post("/subscriptions/action-preview", requireDatabase, async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  if (!signed(req.query)) return res.status(403).json({ok:false,message:"Invalid or expired Shopify app-proxy signature."});
+  const shop = String(req.query.shop || "").trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$/.test(shop)) return res.status(403).json({ok:false,message:"Invalid shop."});
+  const customerId = String(req.query.logged_in_customer_id || "");
+  if (!/^[0-9]+$/.test(customerId)) return res.status(401).json({ok:false,message:"Please sign in to your customer account."});
+  const subscriptionId = String(req.body?.subscriptionId || "");
+  const action = String(req.body?.action || "");
+  const payload = req.body?.payload || {};
+  if (!/^[0-9]+$/.test(subscriptionId)) return res.status(400).json({ok:false,message:"Invalid subscription."});
+  const allowed = new Set(["order-now","skip","reschedule","delay","frequency","pause","cancel","edit-products","edit-address","gift","order-notes","discount","scheduled-orders","past-orders","payment-method","backup-payment-method"]);
+  if (!allowed.has(action)) return res.status(400).json({ok:false,message:"This action is not supported."});
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return res.status(400).json({ok:false,message:"Invalid action details."});
+  if (action === "reschedule") {
+    const value = String(payload.date || "");
+    const parsed = new Date(value + "T00:00:00Z");
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(value) || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0,10) !== value || parsed.getTime() <= Date.now() - 86400000) {
+      return res.status(400).json({ok:false,message:"Choose a valid future date."});
+    }
+  }
+  try {
+    if (!await ShopifyOfflineToken.exists({shop})) return res.status(503).json({ok:false,message:"Shop authorization required."});
+    const { getCustomerLoopSubscriptions } = await import("../services/loop-subscriptions.service.js");
+    const subscriptions = await getCustomerLoopSubscriptions(customerId);
+    const owned = subscriptions.some(item => String(item?.id) === subscriptionId || String(item?.subscriptionId) === subscriptionId || String(item?.shopifyId) === subscriptionId);
+    if (!owned) return res.status(403).json({ok:false,message:"Subscription not found for this customer."});
+    return res.json({ok:true,validated:true,mutated:false,message:"Preview validated. No subscription changes were made."});
+  } catch (error) {
+    console.error("[Subscription action preview]",error?.message);
+    return res.status(503).json({ok:false,message:"Subscription validation is temporarily unavailable."});
+  }
+});
