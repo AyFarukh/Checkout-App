@@ -64,8 +64,13 @@ welcomeVerification.post("/", requireDatabase, async (req,res) => {
     const customers=data.customers.nodes.filter(x=>x.email?.trim().toLowerCase()===email);
     console.info("[Welcome verifier] customer lookup", {mode, returned:data.customers.nodes.length, exactMatches:customers.length, hasPreviousOrder:customers.some(x=>Number(x.numberOfOrders)>0)});
     if (mode === "returning_subscription") {
-      // Returning offer requires a real Shopify customer with at least one order.
-      if (!customers.some(x => Number(x.numberOfOrders) > 0)) return res.json({eligible:false});
+      // New emails and customers with zero orders can enter the new-subscriber offer.
+      // For customers with previous orders, check Loop and reject active subscribers.
+      // This is popup display eligibility only; discount redemption requires independent enforcement.
+      if (!customers.some(x => Number(x.numberOfOrders) > 0)) {
+        console.info("[Welcome verifier] new subscriber offer", {mode, reason:"no_previous_orders"});
+        return res.json({eligible:true});
+      }
       console.info("[Welcome verifier] Loop lookup starting", {mode, customerIdAvailable:Boolean(customers.find(x=>Number(x.numberOfOrders)>0)?.id)});
       const active = await hasActiveLoopSubscription(email);
       console.info("[Welcome verifier] Loop lookup completed", {active});
