@@ -17,12 +17,38 @@ function signed(query) {
   const mac = createHmac("sha256",secret).update(message).digest();
   return timingSafeEqual(mac,Buffer.from(sig,"hex"));
 }
+
+const LOOP_API_BASE = "https://api.loopsubscriptions.com/admin/2026-04";
+async function hasActiveLoopSubscription(email) {
+  const rawHeaders = process.env.LOOP_ADMIN_REQUEST_HEADERS_JSON;
+  if (!rawHeaders) throw new Error("Loop Admin credentials not configured");
+  let headers;
+  try { headers = JSON.parse(rawHeaders); } catch { throw new Error("Invalid Loop Admin headers configuration"); }
+  if (!headers || typeof headers !== "object" || Array.isArray(headers)) throw new Error("Invalid Loop Admin headers");
+  // Credentials stay on the server. Do not forward caller-controlled headers.
+  const tokenHeader = Object.entries(headers).find(([key]) => key.toLowerCase() === "x-loop-token");
+  if (!tokenHeader || !String(tokenHeader[1] || "").trim()) throw new Error("Loop Admin X-Loop-Token missing");
+  const response = await fetch(LOOP_API_BASE + "/customer/" + encodeURIComponent(email) + "/subscription", {
+    headers: { "Accept": "application/json", "X-Loop-Token": String(tokenHeader[1]) },
+    signal: AbortSignal.timeout(8000)
+  });
+  if (!response.ok) throw new Error("Loop subscription lookup HTTP " + response.status);
+  const payload = await response.json();
+  if (payload?.success === false) throw new Error("Loop subscription lookup failed");
+  const records = Array.isArray(payload?.data) ? payload.data :
+    Array.isArray(payload?.data?.subscriptions) ? payload.data.subscriptions :
+    Array.isArray(payload?.subscriptions) ? payload.subscriptions : null;
+  if (!records) throw new Error("Unexpected Loop subscriptions response");
+  return records.some(item => String(item?.status || "").toUpperCase() === "ACTIVE");
+}
+
 welcomeVerification.post("/", requireDatabase, async (req,res) => {
   res.set("Cache-Control","no-store");
   if (!signed(req.query)) return res.status(403).json({error:"Unauthorized"});
   const key = req.ip || "unknown", now = Date.now(), bucket = attempts.get(key);
   if (bucket && now-bucket.start<60000 && bucket.count>=5) return res.status(429).json({error:"Try later"});
   attempts.set(key, !bucket || now-bucket.start>=60000 ? {start:now,count:1} : {start:bucket.start,count:bucket.count+1});
+  const mode = req.body?.mode === "returning_subscription" ? "returning_subscription" : "first_order";
   const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
   if (email.length>254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({error:"Invalid email"});
   // Resolve the installed shop from the signed app proxy request, never from the email payload.
@@ -36,6 +62,12 @@ welcomeVerification.post("/", requireDatabase, async (req,res) => {
     const data = await shopifyAdminGraphql(shop, query, {query:`email:"${email.replace(/["\\\\]/g,"")}"`});
     if (!Array.isArray(data?.customers?.nodes)) throw Error("Customer lookup unavailable");
     const customers=data.customers.nodes.filter(x=>x.email?.toLowerCase()===email);
+    if (mode === "returning_subscription") {
+      // Returning offer requires a real Shopify customer with at least one order.
+      if (!customers.some(x => Number(x.numberOfOrders) > 0)) return res.json({eligible:false});
+      const active = await hasActiveLoopSubscription(email);
+      return res.json({eligible:!active});
+    }
     return res.json({eligible:customers.length===0 || customers.every(x=>Number(x.numberOfOrders)===0)});
   }catch(e){console.error("[Welcome verifier]",e.message);return res.status(503).json({error:"Verification unavailable"});}
 });
