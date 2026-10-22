@@ -147,8 +147,8 @@ welcomeVerification.post("/subscriptions/reschedule", requireDatabase, async (re
     if (!Number.isFinite(previousEpoch)||previousEpoch<=0) return res.status(409).json({ok:false,message:"Current billing date is unavailable."});
     if (new Date(previousEpoch*1000).toISOString().slice(0,10)===requestedDate)
       return res.status(409).json({ok:false,message:"The selected date is already scheduled."});
-    // Do not call Loop here: storefront API requires customer session access token,
-    // not the admin API token configured for read-only customer lookup.
+    // Rescheduling remains disabled until customer-scoped Loop authentication and
+    // the storefront write request are independently verified in a test environment.
     return res.status(200).json({ok:false,applied:false,code:"LOOP_WRITE_DISABLED",message:"Reschedule validation passed, but actual Loop updates are disabled. No changes were made.",currentBillingDateEpoch:previousEpoch,requestedBillingDate:requestedDate});
   } catch(error) {
     console.error("[Subscription reschedule]",error.message);
