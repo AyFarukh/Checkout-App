@@ -143,8 +143,14 @@ welcomeVerification.post("/subscriptions/reschedule", requireDatabase, async (re
     const subscriptions=await getCustomerLoopSubscriptions(customerId);
     const subscription=subscriptions.find(item=>String(item.id)===subscriptionId&&String(item.status).toUpperCase()==="ACTIVE");
     if (!subscription) return res.status(403).json({ok:false,message:"Active subscription ownership could not be verified."});
-    const previousEpoch=Number(subscription.nextBillingDateEpoch);
+    // Loop also exposes nextOrderDateEpoch; older responses use nextBillingDateEpoch.
+    const currentEpochRaw=subscription.nextOrderDateEpoch ?? subscription.nextBillingDateEpoch;
+    const previousEpoch=Number(currentEpochRaw);
     if (!Number.isFinite(previousEpoch)||previousEpoch<=0) return res.status(409).json({ok:false,message:"Current billing date is unavailable."});
+    // Restrict to dates supported by Loop's configured customer portal policy.
+    // Avoid claiming the preview guarantees Loop will accept this date.
+    if (subscription.billingPolicy?.anchors?.type && subscription.billingPolicy.anchors.type !== "NONE")
+      return res.status(200).json({ok:false,applied:false,code:"LOOP_ANCHOR_REVIEW_REQUIRED",message:"This subscription uses a billing anchor. Choose an allowed date in Loop's customer portal."});
     if (new Date(previousEpoch*1000).toISOString().slice(0,10)===requestedDate)
       return res.status(409).json({ok:false,message:"The selected date is already scheduled."});
     // Do not permit Loop writes until verified customer-bound authentication,
