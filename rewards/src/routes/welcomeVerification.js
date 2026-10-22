@@ -151,6 +151,8 @@ welcomeVerification.post("/subscriptions/reschedule", requireDatabase, async (re
     // the storefront write request are independently verified in a test environment.
     if (process.env.LOOP_SUBSCRIPTION_MUTATIONS_ENABLED !== "true")
       return res.status(200).json({ok:false,applied:false,code:"LOOP_WRITE_DISABLED",message:"Reschedule validation passed, but actual Loop updates are disabled. No changes were made.",currentBillingDateEpoch:previousEpoch,requestedBillingDate:requestedDate});
+    // Fail closed until the customer-scoped token is independently verified against the signed Shopify identity.
+    if (process.env.LOOP_RESCHEDULE_IDENTITY_VERIFIED !== "true") return res.status(200).json({ok:false,applied:false,code:"IDENTITY_VERIFICATION_REQUIRED",message:"Secure customer verification is not yet enabled. No changes were made."});
     const token=String(req.get("X-Loop-Access-Token")||"");
     if (!token || token.length > 8192)
       return res.status(200).json({ok:false,applied:false,code:"LOOP_AUTH_REQUIRED",message:"A valid Loop customer session is required."});
