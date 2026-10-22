@@ -151,6 +151,12 @@ welcomeVerification.post("/subscriptions/reschedule", requireDatabase, async (re
     // Avoid claiming the preview guarantees Loop will accept this date.
     if (subscription.billingPolicy?.anchors?.type && subscription.billingPolicy.anchors.type !== "NONE")
       return res.status(200).json({ok:false,applied:false,code:"LOOP_ANCHOR_REVIEW_REQUIRED",message:"This subscription uses a billing anchor. Choose an allowed date in Loop's customer portal."});
+    const previousDate=new Date(previousEpoch*1000).toISOString().slice(0,10);
+    const timezone=String(process.env.LOOP_BILLING_TIMEZONE||"");
+    if (timezone) {
+      try { new Intl.DateTimeFormat("en-US",{timeZone:timezone}); }
+      catch { return res.status(200).json({ok:false,applied:false,code:"INVALID_BILLING_TIMEZONE",message:"Billing timezone configuration needs correction."}); }
+    }
     if (new Date(previousEpoch*1000).toISOString().slice(0,10)===requestedDate)
       return res.status(409).json({ok:false,message:"The selected date is already scheduled."});
     // Do not permit Loop writes until verified customer-bound authentication,
@@ -162,7 +168,10 @@ welcomeVerification.post("/subscriptions/reschedule", requireDatabase, async (re
       code:"LOOP_WRITE_NOT_READY",
       message:"Reschedule validation passed. Actual Loop updates are not yet available; no changes were made.",
       currentBillingDateEpoch:previousEpoch,
-      requestedBillingDate:requestedDate
+      currentBillingDate:previousDate,
+      requestedBillingDate:requestedDate,
+      billingTimezone:timezone||null,
+      requiresMerchantTimezoneConfiguration:!timezone
     });
   } catch(error) {
     console.error("[Subscription reschedule]",error.message);
