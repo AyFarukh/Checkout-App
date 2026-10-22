@@ -151,21 +151,14 @@ welcomeVerification.post("/subscriptions/reschedule", requireDatabase, async (re
     // the storefront write request are independently verified in a test environment.
     if (process.env.LOOP_SUBSCRIPTION_MUTATIONS_ENABLED !== "true")
       return res.status(200).json({ok:false,applied:false,code:"LOOP_WRITE_DISABLED",message:"Reschedule validation passed, but actual Loop updates are disabled. No changes were made.",currentBillingDateEpoch:previousEpoch,requestedBillingDate:requestedDate});
-    const token=String(req.get("X-Loop-Access-Token")||"");
-    if (!token || token.length > 8192)
-      return res.status(200).json({ok:false,applied:false,code:"LOOP_AUTH_REQUIRED",message:"A valid Loop customer session is required."});
-    const newBillingDateEpoch=Math.floor(epoch/1000)+(previousEpoch%86400);
-    const loopResponse=await fetch(`https://api.loopsubscriptions.com/storefront/2026-04/subscription/${encodeURIComponent(subscriptionId)}/reschedule`,{
-      method:"POST",headers:{Authorization:`Bearer ${token}`,Accept:"application/json","Content-Type":"application/json"},
-      body:JSON.stringify({newBillingDateEpoch,timezone:"UTC"}),signal:AbortSignal.timeout(12000)
+    // SECURITY: Do not accept browser-supplied Loop tokens as proof of Shopify identity.
+    // This route must remain read-only until a server-side verified token exchange,
+    // durable idempotency and merchant-timezone semantics are implemented and tested.
+    return res.status(200).json({
+      ok:false,applied:false,code:"LOOP_WRITE_NOT_READY",
+      message:"Reschedule preview passed. Secure Loop write integration is not yet available; no changes were made.",
+      currentBillingDateEpoch:previousEpoch,requestedBillingDate:requestedDate
     });
-    if (!loopResponse.ok)
-      return res.status(200).json({ok:false,applied:false,code:"LOOP_REJECTED",message:"Loop did not confirm the requested change."});
-    const after=await getCustomerLoopSubscriptions(customerId);
-    const changed=after.find(item=>String(item.id)===subscriptionId);
-    if (Number(changed?.nextBillingDateEpoch)!==newBillingDateEpoch)
-      return res.status(200).json({ok:false,applied:false,code:"LOOP_UNVERIFIED",message:"Loop returned success, but the new billing date could not be verified. Check Loop before retrying."});
-    return res.status(200).json({ok:true,applied:true,newBillingDateEpoch,requestedBillingDate:requestedDate});
   } catch(error) {
     console.error("[Subscription reschedule]",error.message);
     return res.status(503).json({ok:false,applied:false,message:"Unable to verify subscription. No changes were made."});
