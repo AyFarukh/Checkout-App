@@ -149,7 +149,7 @@ welcomeVerification.post("/subscriptions/reschedule", requireDatabase, async (re
       return res.status(409).json({ok:false,message:"The selected date is already scheduled."});
     // Do not call Loop here: storefront API requires customer session access token,
     // not the admin API token configured for read-only customer lookup.
-    return res.status(503).json({ok:false,applied:false,message:"Reschedule write integration is not enabled. No changes were made.",currentBillingDateEpoch:previousEpoch,requestedBillingDate:requestedDate});
+    return res.status(200).json({ok:false,applied:false,code:"LOOP_WRITE_DISABLED",message:"Reschedule validation passed, but actual Loop updates are disabled. No changes were made.",currentBillingDateEpoch:previousEpoch,requestedBillingDate:requestedDate});
   } catch(error) {
     console.error("[Subscription reschedule]",error.message);
     return res.status(503).json({ok:false,applied:false,message:"Unable to verify subscription. No changes were made."});
