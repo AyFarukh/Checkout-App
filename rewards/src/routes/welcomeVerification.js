@@ -115,6 +115,44 @@ welcomeVerification.post("/subscriptions/action-preview", requireDatabase, async
   }catch(error){console.error("[Subscription action preview]",error.message);return res.status(503).json({ok:false,message:"Unable to validate subscription ownership."});}
 });
 
+// Reschedule execution gate. Intentionally no Loop mutation until a verified
+// Loop write-auth integration and its integration tests are available.
+welcomeVerification.post("/subscriptions/reschedule", requireDatabase, async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  if (!signed(req.query)) return res.status(403).json({ok:false,message:"Invalid storefront signature."});
+  const shop=String(req.query.shop||"").toLowerCase();
+  const customerId=String(req.query.logged_in_customer_id||"");
+  if (!/^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$/.test(shop)||!/^\\d+$/.test(customerId))
+    return res.status(401).json({ok:false,message:"Sign in required."});
+  if (!await ShopifyOfflineToken.exists({shop})) return res.status(403).json({ok:false,message:"Store authorization required."});
+  const allowedCustomer=String(process.env.LOOP_TEST_CUSTOMER_ID||"");
+  const allowedSubscription=String(process.env.LOOP_TEST_SUBSCRIPTION_ID||"");
+  const subscriptionId=String(req.body?.subscriptionId||"");
+  if (!allowedCustomer||!allowedSubscription||customerId!==allowedCustomer||subscriptionId!==allowedSubscription)
+    return res.status(403).json({ok:false,message:"Only the configured test subscription is allowed."});
+  if (req.body?.confirm !== true) return res.status(400).json({ok:false,message:"Explicit confirmation is required."});
+  const requestedDate=String(req.body?.date||"");
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(requestedDate)) return res.status(400).json({ok:false,message:"Invalid date."});
+  const epoch=Date.parse(requestedDate+"T00:00:00Z");
+  if (!Number.isFinite(epoch)||new Date(epoch).toISOString().slice(0,10)!==requestedDate||epoch<Date.now()+86400000)
+    return res.status(400).json({ok:false,message:"Choose a valid date at least 24 hours ahead."});
+  try {
+    const subscriptions=await getCustomerLoopSubscriptions(customerId);
+    const subscription=subscriptions.find(item=>String(item.id)===subscriptionId&&String(item.status).toUpperCase()==="ACTIVE");
+    if (!subscription) return res.status(403).json({ok:false,message:"Active subscription ownership could not be verified."});
+    const previousEpoch=Number(subscription.nextBillingDateEpoch);
+    if (!Number.isFinite(previousEpoch)||previousEpoch<=0) return res.status(409).json({ok:false,message:"Current billing date is unavailable."});
+    if (new Date(previousEpoch*1000).toISOString().slice(0,10)===requestedDate)
+      return res.status(409).json({ok:false,message:"The selected date is already scheduled."});
+    // Do not call Loop here: storefront API requires customer session access token,
+    // not the admin API token configured for read-only customer lookup.
+    return res.status(503).json({ok:false,applied:false,message:"Reschedule write integration is not enabled. No changes were made.",currentBillingDateEpoch:previousEpoch,requestedBillingDate:requestedDate});
+  } catch(error) {
+    console.error("[Subscription reschedule]",error.message);
+    return res.status(503).json({ok:false,applied:false,message:"Unable to verify subscription. No changes were made."});
+  }
+});
+
 welcomeVerification.get("/subscriptions", requireDatabase, async (req, res) => {
   res.set("Cache-Control", "private, no-store");
   res.set("X-Content-Type-Options", "nosniff");
