@@ -3,10 +3,12 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { requireDatabase } from "../config/db.js";
 import { ShopifyOfflineToken } from "../models/ShopifyOfflineToken.js";
 import { shopifyAdminGraphql } from "../services/shopify-admin.service.js";
+import { getCustomerLoopSubscriptions } from "../services/loop-subscriptions.service.js";
+import { enrichSubscriptionImages } from "../services/subscription-images.service.js";
 
 export const welcomeVerification = Router();
 const attempts = new Map();
-function signed(query) {
+export function signed(query) {
   const secret = process.env.SHOPIFY_API_SECRET || process.env.SHOPIFY_API_SECRET_KEY;
   const sig = query.signature;
   if (!secret || typeof sig !== "string" || !/^[a-f0-9]{64}$/i.test(sig)) return false;
@@ -64,57 +66,70 @@ welcomeVerification.post("/", requireDatabase, async (req,res) => {
     const customers=data.customers.nodes.filter(x=>x.email?.trim().toLowerCase()===email);
     console.info("[Welcome verifier] customer lookup", {mode, returned:data.customers.nodes.length, exactMatches:customers.length, hasPreviousOrder:customers.some(x=>Number(x.numberOfOrders)>0)});
     if (mode === "returning_subscription") {
-      // New emails and customers with zero orders can enter the new-subscriber offer.
-      // For customers with previous orders, check Loop and reject active subscribers.
-      // This is popup display eligibility only; discount redemption requires independent enforcement.
-      if (!customers.some(x => Number(x.numberOfOrders) > 0)) {
-        console.info("[Welcome verifier] new subscriber offer", {mode, reason:"no_previous_orders"});
-        return res.json({eligible:true});
-      }
+      // Returning offer requires a real Shopify customer with at least one order.
+      if (!customers.some(x => Number(x.numberOfOrders) > 0)) return res.json({eligible:false});
       console.info("[Welcome verifier] Loop lookup starting", {mode, customerIdAvailable:Boolean(customers.find(x=>Number(x.numberOfOrders)>0)?.id)});
       const active = await hasActiveLoopSubscription(email);
       console.info("[Welcome verifier] Loop lookup completed", {active});
-      return res.json({eligible:!active, activeSubscription:active});
+      return res.json({eligible:!active});
     }
     return res.json({eligible:customers.length===0 || customers.every(x=>Number(x.numberOfOrders)===0)});
   }catch(e){console.error("[Welcome verifier]",e.message);return res.status(503).json({error:"Verification unavailable"});}
 });
 
-/**
- * Read-only Shopify app-proxy action validation.
- * Shopify signs the proxy query and provides logged_in_customer_id.
- * No Loop write endpoint is called here.
- */
-welcomeVerification.post("/subscriptions/action-preview", requireDatabase, async (req, res) => {
-  res.set("Cache-Control", "no-store");
-  if (!signed(req.query)) return res.status(403).json({ok:false,message:"Invalid or expired Shopify app-proxy signature."});
-  const shop = String(req.query.shop || "").trim().toLowerCase();
-  if (!/^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$/.test(shop)) return res.status(403).json({ok:false,message:"Invalid shop."});
-  const customerId = String(req.query.logged_in_customer_id || "");
-  if (!/^[0-9]+$/.test(customerId)) return res.status(401).json({ok:false,message:"Please sign in to your customer account."});
-  const subscriptionId = String(req.body?.subscriptionId || "");
-  const action = String(req.body?.action || "");
-  const payload = req.body?.payload || {};
-  if (!/^[0-9]+$/.test(subscriptionId)) return res.status(400).json({ok:false,message:"Invalid subscription."});
-  const allowed = new Set(["order-now","skip","reschedule","delay","frequency","pause","cancel","edit-products","edit-address","gift","order-notes","discount","scheduled-orders","past-orders","payment-method","backup-payment-method"]);
-  if (!allowed.has(action)) return res.status(400).json({ok:false,message:"This action is not supported."});
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return res.status(400).json({ok:false,message:"Invalid action details."});
-  if (action === "reschedule") {
-    const value = String(payload.date || "");
-    const parsed = new Date(value + "T00:00:00Z");
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(value) || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0,10) !== value || parsed.getTime() <= Date.now() - 86400000) {
-      return res.status(400).json({ok:false,message:"Choose a valid future date."});
-    }
-  }
+ 
+// Storefront subscription dashboard: served through the EXISTING Shopify app proxy.
+// Shopify signs logged_in_customer_id. Never accept customer IDs from the browser body.
+// Test-only action validation. Never sends writes to Loop.
+welcomeVerification.post("/subscriptions/action-preview", requireDatabase, async (req,res) => {
+  res.set("Cache-Control","no-store");
+  if (!signed(req.query)) return res.status(403).json({ok:false,message:"Invalid storefront signature."});
+  const shop=String(req.query.shop||"").toLowerCase();
+  const customerId=String(req.query.logged_in_customer_id||"");
+  if (!/^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$/.test(shop)||!/^\\d+$/.test(customerId))
+    return res.status(401).json({ok:false,message:"Sign in required."});
+  if (!await ShopifyOfflineToken.exists({shop})) return res.status(403).json({ok:false,message:"Store authorization required."});
+  const allowCustomer=String(process.env.LOOP_TEST_CUSTOMER_ID||"");
+  const allowSubscription=String(process.env.LOOP_TEST_SUBSCRIPTION_ID||"");
+  if (!allowCustomer||!allowSubscription||customerId!==allowCustomer)
+    return res.status(403).json({ok:false,message:"Only the configured test customer can preview subscription changes."});
+  const action=String(req.body?.action||"");
+  const supported=new Set(["skip","reschedule","delay","order-now","gift","frequency","pause","cancel","edit-products","edit-address","discount","order-note"]);
+  if (!supported.has(action)) return res.status(400).json({ok:false,message:"Unsupported action."});
+  const subscriptionId=String(req.body?.subscriptionId||"");
+  if (subscriptionId!==allowSubscription) return res.status(403).json({ok:false,message:"Only the configured test subscription is allowed."});
   try {
-    if (!await ShopifyOfflineToken.exists({shop})) return res.status(503).json({ok:false,message:"Shop authorization required."});
-    const { getCustomerLoopSubscriptions } = await import("../services/loop-subscriptions.service.js");
+    const subscriptions=await getCustomerLoopSubscriptions(customerId);
+    if (!subscriptions.some(item=>[item.id,item.shopifyId,item.subscriptionId].some(id=>String(id||"")===subscriptionId)))
+      return res.status(403).json({ok:false,message:"Subscription ownership could not be verified."});
+    const payload=req.body?.payload;
+    if (!payload||typeof payload!=="object"||Array.isArray(payload)||JSON.stringify(payload).length>2000)
+      return res.status(400).json({ok:false,message:"Invalid action details."});
+    if (action==="reschedule" && (!/^\\d{4}-\\d{2}-\\d{2}$/.test(String(payload.date||""))||Date.parse(payload.date)<Date.now()-86400000))
+      return res.status(400).json({ok:false,message:"Select a valid future date."});
+    if (action==="delay" && ![7,14,30].includes(Number(payload.days)))
+      return res.status(400).json({ok:false,message:"Select 7, 14 or 30 days."});
+    if (action==="frequency" && (![1,2,3,4,6].includes(Number(payload.intervalCount))||!["WEEK","MONTH"].includes(payload.interval)))
+      return res.status(400).json({ok:false,message:"Invalid frequency."});
+    return res.json({ok:true,preview:true,applied:false,message:"Action validated for test customer. No changes were sent to Loop.",action});
+  }catch(error){console.error("[Subscription action preview]",error.message);return res.status(503).json({ok:false,message:"Unable to validate subscription ownership."});}
+});
+
+welcomeVerification.get("/subscriptions", requireDatabase, async (req, res) => {
+  res.set("Cache-Control", "private, no-store");
+  res.set("X-Content-Type-Options", "nosniff");
+  if (!signed(req.query)) return res.status(403).json({ ok: false, message: "Invalid storefront signature." });
+  const shop = String(req.query.shop || "").toLowerCase();
+  const customerId = String(req.query.logged_in_customer_id || "");
+  if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop)) return res.status(403).json({ ok: false, message: "Invalid shop." });
+  if (!/^\d+$/.test(customerId)) return res.status(401).json({ ok: false, message: "Please sign in to view your subscription." });
+  try {
+    if (!await ShopifyOfflineToken.exists({ shop })) return res.status(403).json({ ok: false, message: "Store authorization required." });
     const subscriptions = await getCustomerLoopSubscriptions(customerId);
-    const owned = subscriptions.some(item => String(item?.id) === subscriptionId || String(item?.subscriptionId) === subscriptionId || String(item?.shopifyId) === subscriptionId);
-    if (!owned) return res.status(403).json({ok:false,message:"Subscription not found for this customer."});
-    return res.json({ok:true,validated:true,mutated:false,message:"Preview validated. No subscription changes were made."});
+    const enriched = await enrichSubscriptionImages(shop, subscriptions);
+    return res.json({ ok: true, mode: "read-only", mutationsEnabled: false, subscriptions: enriched });
   } catch (error) {
-    console.error("[Subscription action preview]",error?.message);
-    return res.status(503).json({ok:false,message:"Subscription validation is temporarily unavailable."});
+    console.error("[Storefront subscriptions]", error.message);
+    return res.status(503).json({ ok: false, message: "Subscription details are temporarily unavailable." });
   }
 });
