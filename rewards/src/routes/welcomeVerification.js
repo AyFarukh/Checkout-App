@@ -124,7 +124,8 @@ welcomeVerification.post("/subscriptions/reschedule", requireDatabase, async (re
   console.info("[Subscription reschedule auth]", {hasShop:Boolean(req.query.shop),hasCustomerId:Boolean(req.query.logged_in_customer_id),hasSignature:Boolean(req.query.signature),hasTimestamp:Boolean(req.query.timestamp)});
   const shop=String(req.query.shop||"").toLowerCase();
   const customerId=String(req.query.logged_in_customer_id||"");
-  if (!/^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$/.test(shop)||!/^\\d+$/.test(customerId))
+  console.info("[Subscription reschedule auth validation]", {shopFormatValid:/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop),customerIdNumeric:/^\d+$/.test(customerId),customerIdLength:customerId.length,signatureValid:true});
+  if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop)||!/^\d+$/.test(customerId))
     return res.status(401).json({ok:false,message:"Sign in required."});
   if (!await ShopifyOfflineToken.exists({shop})) return res.status(403).json({ok:false,message:"Store authorization required."});
   const allowedCustomer=String(process.env.LOOP_TEST_CUSTOMER_ID||"");
@@ -134,7 +135,7 @@ welcomeVerification.post("/subscriptions/reschedule", requireDatabase, async (re
     return res.status(403).json({ok:false,message:"Only the configured test subscription is allowed."});
   if (req.body?.confirm !== true) return res.status(400).json({ok:false,message:"Explicit confirmation is required."});
   const requestedDate=String(req.body?.date||"");
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(requestedDate)) return res.status(400).json({ok:false,message:"Invalid date."});
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) return res.status(400).json({ok:false,message:"Invalid date."});
   const epoch=Date.parse(requestedDate+"T00:00:00Z");
   if (!Number.isFinite(epoch)||new Date(epoch).toISOString().slice(0,10)!==requestedDate||epoch<Date.now()+86400000)
     return res.status(400).json({ok:false,message:"Choose a valid date at least 24 hours ahead."});
