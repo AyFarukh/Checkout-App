@@ -86,7 +86,7 @@ welcomeVerification.post("/subscriptions/action-preview", requireDatabase, async
   if (!signed(req.query)) return res.status(403).json({ok:false,message:"Invalid storefront signature."});
   const shop=String(req.query.shop||"").toLowerCase();
   const customerId=String(req.query.logged_in_customer_id||"");
-  if (!/^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$/.test(shop)||!/^\\d+$/.test(customerId))
+  if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop)||!/^\d+$/.test(customerId))
     return res.status(401).json({ok:false,message:"Sign in required."});
   if (!await ShopifyOfflineToken.exists({shop})) return res.status(403).json({ok:false,message:"Store authorization required."});
   const allowCustomer=String(process.env.LOOP_TEST_CUSTOMER_ID||"");
@@ -105,7 +105,7 @@ welcomeVerification.post("/subscriptions/action-preview", requireDatabase, async
     const payload=req.body?.payload;
     if (!payload||typeof payload!=="object"||Array.isArray(payload)||JSON.stringify(payload).length>2000)
       return res.status(400).json({ok:false,message:"Invalid action details."});
-    if (action==="reschedule" && (!/^\\d{4}-\\d{2}-\\d{2}$/.test(String(payload.date||""))||Date.parse(payload.date)<Date.now()-86400000))
+    if (action==="reschedule" && (!/^\d{4}-\d{2}-\d{2}$/.test(String(payload.date||""))||Date.parse(payload.date)<Date.now()-86400000))
       return res.status(400).json({ok:false,message:"Select a valid future date."});
     if (action==="delay" && ![7,14,30].includes(Number(payload.days)))
       return res.status(400).json({ok:false,message:"Select 7, 14 or 30 days."});
