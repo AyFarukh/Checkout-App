@@ -120,6 +120,8 @@ welcomeVerification.post("/subscriptions/action-preview", requireDatabase, async
 welcomeVerification.post("/subscriptions/reschedule", requireDatabase, async (req, res) => {
   res.set("Cache-Control", "no-store");
   if (!signed(req.query)) return res.status(403).json({ok:false,message:"Invalid storefront signature."});
+  // Presence-only diagnostics; never log customer IDs, signatures, or cookies.
+  console.info("[Subscription reschedule auth]", {hasShop:Boolean(req.query.shop),hasCustomerId:Boolean(req.query.logged_in_customer_id),hasSignature:Boolean(req.query.signature),hasTimestamp:Boolean(req.query.timestamp)});
   const shop=String(req.query.shop||"").toLowerCase();
   const customerId=String(req.query.logged_in_customer_id||"");
   if (!/^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$/.test(shop)||!/^\\d+$/.test(customerId))
