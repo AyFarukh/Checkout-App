@@ -147,17 +147,16 @@ welcomeVerification.post("/subscriptions/reschedule", requireDatabase, async (re
     if (!Number.isFinite(previousEpoch)||previousEpoch<=0) return res.status(409).json({ok:false,message:"Current billing date is unavailable."});
     if (new Date(previousEpoch*1000).toISOString().slice(0,10)===requestedDate)
       return res.status(409).json({ok:false,message:"The selected date is already scheduled."});
-    // Rescheduling remains disabled until customer-scoped Loop authentication and
-    // the storefront write request are independently verified in a test environment.
-    if (process.env.LOOP_SUBSCRIPTION_MUTATIONS_ENABLED !== "true")
-      return res.status(200).json({ok:false,applied:false,code:"LOOP_WRITE_DISABLED",message:"Reschedule validation passed, but actual Loop updates are disabled. No changes were made.",currentBillingDateEpoch:previousEpoch,requestedBillingDate:requestedDate});
-    // SECURITY: Do not accept browser-supplied Loop tokens as proof of Shopify identity.
-    // This route must remain read-only until a server-side verified token exchange,
-    // durable idempotency and merchant-timezone semantics are implemented and tested.
+    // Do not permit Loop writes until verified customer-bound authentication,
+    // idempotency and billing-timezone handling have been implemented.
+    // This remains blocked regardless of LOOP_SUBSCRIPTION_MUTATIONS_ENABLED.
     return res.status(200).json({
-      ok:false,applied:false,code:"LOOP_WRITE_NOT_READY",
-      message:"Reschedule preview passed. Secure Loop write integration is not yet available; no changes were made.",
-      currentBillingDateEpoch:previousEpoch,requestedBillingDate:requestedDate
+      ok:false,
+      applied:false,
+      code:"LOOP_WRITE_NOT_READY",
+      message:"Reschedule validation passed. Actual Loop updates are not yet available; no changes were made.",
+      currentBillingDateEpoch:previousEpoch,
+      requestedBillingDate:requestedDate
     });
   } catch(error) {
     console.error("[Subscription reschedule]",error.message);
