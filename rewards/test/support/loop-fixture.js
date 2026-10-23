@@ -5,7 +5,7 @@ export function baseSubscription() {
 }
 export const actionCases=[['skip',{}],['reschedule',{date:new Date(Date.now()+20*86400000).toISOString().slice(0,10)}],['delay',{days:7}],['order-now',{preponeFutureOrder:true}],['frequency',{interval:'WEEK',intervalCount:2}],['pause',{confirmPause:true}],['cancel',{confirmCancellation:true}],['edit-products',{lineId:'7',quantity:2}],['edit-address',{...baseSubscription().shippingAddress,address1:'2 Test Road'}],['discount',{value:'TEST10'}],['order-note',{value:'Leave at the door'}]];
 export async function startLoopFixture() {
- const fixture={reset(){this.subscription=baseSubscription();this.writes=[];this.history=[];this.schedule=[{id:1,status:'SCHEDULED',scheduledAt:new Date(this.subscription.nextBillingDateEpoch*1000).toISOString()}];this.owned=true;this.noStateChange=false;this.businessFailure=false;this.ambiguousFailure=false;this.writeDelay=0;}};
+ const fixture={reset(){this.subscription=baseSubscription();this.writes=[];this.history=[];this.schedule=[{id:1,status:'UNPROCESSED',billingDate:new Date(this.subscription.nextBillingDateEpoch*1000).toISOString()}];this.owned=true;this.noStateChange=false;this.businessFailure=false;this.ambiguousFailure=false;this.writeDelay=0;this.omitSkipped=false;}};
  fixture.reset();
  const server=http.createServer(async(req,res)=>{
   if(req.headers['x-loop-token']!=='fixture-only'){res.writeHead(401);return res.end('{"success":false}');}
@@ -16,7 +16,7 @@ export async function startLoopFixture() {
    if(path.endsWith('/product'))data=[{title:'Test catalog',productVariants:[{shopifyId:101,title:'New product',hasSellingPlan:true}]}];
    else if(path.includes('/customer/'))data=fixture.owned?[fixture.subscription]:[];
    else if(path.endsWith('/order/history'))data=fixture.history;
-   else if(path.endsWith('/order/schedule'))data=fixture.schedule;
+   else if(path.endsWith('/order/schedule'))data=fixture.omitSkipped?fixture.schedule.filter(o=>o.status!=='SKIPPED'):fixture.schedule;
    else data=fixture.subscription;
   }else{
    const b=raw?JSON.parse(raw):{};fixture.writes.push({path,method:req.method,body:b});

@@ -68,6 +68,23 @@ export function dateEpoch(date,timezone,previousEpoch) {
   fail('NONEXISTENT_LOCAL_BILLING_TIME');
 }
 export const nextEpoch = s => Number(s.nextOrderDateEpoch ?? s.nextBillingDateEpoch);
+export function nextScheduledOrder(subscription,schedule) {
+  const unavailable=()=>{throw actionError('NEXT_ORDER_UNAVAILABLE',409);};
+  if(!Array.isArray(schedule))unavailable();
+  const pending=schedule.filter(o=>['UNPROCESSED','SCHEDULED'].includes(o?.status)).map(order=>{
+    // The live Admin schedule uses billingDate; retain the older shape only
+    // when that field is absent, never when it is explicitly invalid.
+    const date=Object.hasOwn(order,'billingDate')?order.billingDate:order.scheduledAt;
+    if(!id(String(order.id))||(typeof order.id==='number'&&!Number.isSafeInteger(order.id))||
+       typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(date))unavailable();
+    const epoch=Date.parse(date)/1000;
+    if(!Number.isFinite(epoch))unavailable();
+    return {order,epoch};
+  }).sort((a,b)=>a.epoch-b.epoch);
+  if(!pending.length||pending[0].epoch!==nextEpoch(subscription)||
+      pending[1]?.epoch===pending[0].epoch||new Set(pending.map(x=>String(x.order.id))).size!==pending.length)unavailable();
+  return pending[0].order;
+}
 export const subscriptionLines = s => s.lineItems || s.lines || [];
 // Admin read-subscription-details returns orderNote. Webhook/older payloads use
 // note; fall back only when orderNote is absent, never when explicitly null.

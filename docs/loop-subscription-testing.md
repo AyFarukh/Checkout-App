@@ -155,8 +155,8 @@ On that development theme, perform every supported action through Review change 
 
 ## Verification performed on 2026-10-23
 
-- `npm test`: 57 passed, 2 existing rewards webhook tests skipped without `MONGODB_URI`, zero failures.
-- Subscription integration: 40 passed, zero skipped or failures, using real Mongo and the local HTTP provider.
+- `npm test`: 60 passed, 2 existing rewards webhook tests skipped without `MONGODB_URI`, zero failures.
+- Subscription integration: 42 passed, zero skipped or failures, using real Mongo and the local HTTP provider.
 - Browser E2E: 33 passed, including the full stack and mobile form. This environment used a locally available Chromium headless shell with the documented single-process CI workaround.
 - No real Loop mutations, real Shopify sessions, production deployments or PR merges were performed.
 
@@ -175,6 +175,14 @@ If an order-note request is already unknown, pull this branch and run only `npm 
 Frequency preview now returns `NO_CHANGE` before reservation or dispatch when billing and delivery already match the requested interval/count. For an older frequency attempt recorded as unknown, status checks compare its stored before-state and the current provider read. Only when both policies already matched before and still match now is the attempt resolved with `NO_CHANGE` and its lock released. This records no successful frequency change and sends no provider write. Missing/mismatched policies remain unknown; active in-flight workers keep their lock.
 
 For this recovery, pull the branch and run `npm run test:subscriptions:live -- --action frequency --status` with the original local database and state file. The result has `code: "NO_CHANGE"`, `applied: false`, `verified: false`; the CLI exits nonzero because no applied change is claimed. The stored attempt is now resolved, so a subsequent deliberate change can use a new preview. Do not delete an unknown attempt to bypass a lock.
+
+## Live Admin skip schedule selection
+
+The observed Admin schedule uses `status: "UNPROCESSED"` and an ISO `billingDate`. Skip selection now supports that shape as well as the older `SCHEDULED`/`scheduledAt` shape. It sorts pending rows by their validated timestamp, requires an unambiguous numeric ID and an exact match to the subscription's next billing epoch, and refuses incomplete/mismatched evidence. Preview now performs this check before issuing a receipt. The shared HTTP fixture returns the live Admin shape, including in browser tests.
+
+A skip still requires the original order ID to be read back as `SKIPPED` and a later next billing date. A date change alone or omission of the skipped row remains unknown and must not trigger another write. Regression tests cover missing evidence, ambiguous selection, replay and read-only recovery when the skipped row becomes visible.
+
+For the pre-dispatch `NEXT_ORDER_UNAVAILABLE` attempt, pull the fix, create a new skip preview, then execute and check status. The failed attempt sent no skip write. If any later dispatched attempt is unknown, use only status; do not create a new key.
 
 ## Current release status
 

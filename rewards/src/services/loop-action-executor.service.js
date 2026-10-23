@@ -3,7 +3,7 @@ import { ShopifyOfflineToken } from '../models/ShopifyOfflineToken.js';
 import { LoopActionAttempt } from '../models/LoopActionAttempt.js';
 import { getCustomerLoopSubscriptions, loopAdminRequest, loopMutationsEnabled } from './loop-subscriptions.service.js';
 import { actionRequestHash, reserveLoopAction, claimLoopAction, finishLoopAction } from './loop-action-ledger.service.js';
-import { actionError, canonical, normalizeAction, prepareAction, stateHash, verifyAction, frequencyMatches } from './loop-action-contract.service.js';
+import { actionError, canonical, normalizeAction, prepareAction, stateHash, verifyAction, frequencyMatches, nextScheduledOrder } from './loop-action-contract.service.js';
 
 const keyPattern=/^[a-zA-Z0-9_-]{16,128}$/;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -93,6 +93,7 @@ export function createLoopActionService({installationExists=shop=>ShopifyOffline
     const bound=request(identity,body);await authorized(bound);
     await validateVariant(identity,bound);
     const state=await read(bound,bound.action),plan=prepareAction(bound.action,bound.subscriptionId,bound.payload,state.subscription);
+    if(bound.action==='skip')nextScheduledOrder(state.subscription,state.schedule);
     const expiresAt=Date.now()+300000;
     return {ok:true,preview:true,applied:false,action:bound.action,expiresAt,
       previewToken:sign({hash:actionRequestHash(bound),state:previewStateHash(state),requestKey:bound.requestKey,expiresAt}),
@@ -119,8 +120,7 @@ export function createLoopActionService({installationExists=shop=>ShopifyOffline
     const plan=prepareAction(bound.action,bound.subscriptionId,bound.payload,state.subscription);
     await validateVariant(identity,bound);
     if(bound.action==='skip') {
-      const order=state.schedule.filter(o=>o.status==='SCHEDULED').sort((a,b)=>Date.parse(a.scheduledAt)-Date.parse(b.scheduledAt))[0];
-      if(!order || !/^\d+$/.test(String(order.id))) throw actionError('NEXT_ORDER_UNAVAILABLE',409);
+      const order=nextScheduledOrder(state.subscription,state.schedule);
       plan.scheduleId=String(order.id);
     }
     if(bound.action==='order-now') plan.historyIds=state.history.map(o=>String(o.id));

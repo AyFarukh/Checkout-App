@@ -30,6 +30,19 @@ for(const [action,payload] of actionCases) test(`${action}: real HTTP adapter, M
 test('gift cannot claim success or send an unverified provider request',async()=>{
  await assert.rejects(service.preview(identity,request('gift',{})),e=>e.code==='GIFT_API_UNAVAILABLE');assert.equal(provider.writes.length,0);
 });
+test('skip rejects unavailable schedule evidence during preview without a reservation',async()=>{
+ provider.schedule[0].billingDate='2020-01-01T00:00:00Z';
+ await assert.rejects(service.preview(identity,request('skip',{})),e=>e.code==='NEXT_ORDER_UNAVAILABLE');
+ assert.equal(provider.writes.length,0);assert.equal(await LoopActionAttempt.countDocuments({}),0);
+});
+test('skip cannot claim success from date drift when the skipped row is absent',async()=>{
+ const b=request('skip',{}),p=await service.preview(identity,b);provider.omitSkipped=true;
+ assert.equal((await service.execute(identity,{...b,previewToken:p.previewToken})).code,'ACTION_OUTCOME_UNKNOWN');
+ assert.equal((await service.execute(identity,{...b,previewToken:p.previewToken})).applied,false);
+ assert.equal(provider.writes.length,1);
+ provider.omitSkipped=false;
+ assert.equal((await service.status(identity,b)).verified,true);assert.equal(provider.writes.length,1);
+});
 test('frequency no-op preview dispatches nothing and creates no lock',async()=>{
  await assert.rejects(service.preview(identity,request('frequency',{interval:'MONTH',intervalCount:1})),e=>e.code==='NO_CHANGE');
  assert.equal(provider.writes.length,0);assert.equal(await LoopActionAttempt.countDocuments({}),0);
@@ -176,8 +189,8 @@ test('recent in-flight operations are never released by a concurrent status poll
  provider.subscription.orderNote='pending';const result=await service.status(identity,b);assert.equal(result.applied,false);assert.equal(result.operationState,'in_flight');
 });
 test('pre-dispatch failures carry an explicit safe-to-review marker',async()=>{
- provider.schedule=[];const b=request('skip',{}),p=await service.preview(identity,b);
- await assert.rejects(service.execute(identity,{...b,previewToken:p.previewToken}),e=>e.code==='NEXT_ORDER_UNAVAILABLE'&&e.dispatched===false);
+ const b=request('skip',{}),p=await service.preview(identity,b);provider.schedule=[];
+ await assert.rejects(service.execute(identity,{...b,previewToken:p.previewToken}),e=>e.code==='STALE_PREVIEW'&&e.dispatched===false);
  assert.equal(provider.writes.length,0);
 });
 test('order-now previews bind order history even when the subscription date stays unchanged',async()=>{

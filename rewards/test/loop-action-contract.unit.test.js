@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeAction, prepareAction, verifyAction, stateHash, dateEpoch } from '../src/services/loop-action-contract.service.js';
+import { normalizeAction, prepareAction, verifyAction, stateHash, dateEpoch, nextScheduledOrder } from '../src/services/loop-action-contract.service.js';
 
 const now = Date.parse('2026-10-23T12:00:00Z');
 const before = { id:42347174,status:'ACTIVE',nextBillingDateEpoch:1793451600,
@@ -26,6 +26,21 @@ for(const [action,payload,method,path] of cases) test(`${action}: validates inpu
  assert.equal(verifyAction(action,normalized,before,{subscription:before,history:[],schedule:[]},plan),false,'unchanged state is not proof');
 });
 test('gift is explicitly blocked without an invented endpoint',()=>assert.throws(()=>normalizeAction('gift',{}),e=>e.code==='GIFT_API_UNAVAILABLE'));
+test('skip selects the matching next Admin billingDate from unordered UNPROCESSED rows',()=>{
+ const s={...before,nextOrderDateEpoch:1799944018};
+ const first={id:431535744,status:'UNPROCESSED',billingDate:'2027-01-14T16:26:58.000Z'};
+ const later={id:431535745,status:'UNPROCESSED',billingDate:'2027-04-14T16:26:58.000Z'};
+ assert.equal(nextScheduledOrder(s,[later,{id:1,status:'SKIPPED',billingDate:'2026-10-14T16:26:58.000Z'},first]).id,first.id);
+});
+test('skip supports the earlier SCHEDULED and scheduledAt shape',()=>{
+ const first={id:1,status:'SCHEDULED',scheduledAt:new Date(before.nextBillingDateEpoch*1000).toISOString()};
+ assert.equal(nextScheduledOrder(before,[first]).id,1);
+});
+test('skip refuses missing, invalid, ambiguous or mismatched next-order evidence',()=>{
+ const first={id:1,status:'UNPROCESSED',billingDate:new Date(before.nextBillingDateEpoch*1000).toISOString()};
+ for(const rows of [[],[{...first,id:null}],[{...first,billingDate:'invalid'}],[{...first,billingDate:null,scheduledAt:first.billingDate}],[{...first,billingDate:'2027-04-14T16:26:58.000Z'}],[first,{...first,id:2}],[{...first,status:'SUCCESS'}]])
+  assert.throws(()=>nextScheduledOrder(before,rows),e=>e.code==='NEXT_ORDER_UNAVAILABLE');
+});
 test('frequency rejects a no-op only when both policies already match',()=>{
  assert.throws(()=>prepareAction('frequency','42347174',{interval:'MONTH',intervalCount:1},before,{now}),e=>e.code==='NO_CHANGE');
  assert.doesNotThrow(()=>prepareAction('frequency','42347174',{interval:'MONTH',intervalCount:1},{...before,deliveryPolicy:{interval:'MONTH',intervalCount:2}},{now}));
