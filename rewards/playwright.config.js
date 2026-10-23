@@ -1,0 +1,2 @@
+import {defineConfig} from '@playwright/test';
+export default defineConfig({testDir:'./test/e2e',testMatch:['dashboard.spec.js','stack.spec.js'],workers:1,use:{headless:true,launchOptions:{...(process.env.FTR_CHROMIUM_EXECUTABLE?{executablePath:process.env.FTR_CHROMIUM_EXECUTABLE}:{}),...(process.env.FTR_CHROMIUM_SINGLE_PROCESS==='true'?{args:['--single-process','--no-zygote']}:{})}},reporter:'list',outputDir:'test-results',webServer:{command:'node test/e2e/server.js',url:'http://127.0.0.1:4123/health',reuseExistingServer:false,timeout:60000}});

@@ -10,6 +10,9 @@ const schema=new mongoose.Schema({
   action:{type:String,required:true},
   requestKey:{type:String,required:true},
   requestHash:{type:String,required:true},
+  lockKey:{type:String},
+  payload:{type:mongoose.Schema.Types.Mixed,select:false},
+  context:{type:mongoose.Schema.Types.Mixed,select:false},
   status:{type:String,enum:["reserved","in_flight","applied","rejected","unknown"],default:"reserved"},
   startedAt:{type:Date,default:Date.now},
   completedAt:{type:Date,default:null},
@@ -17,6 +20,9 @@ const schema=new mongoose.Schema({
   errorCode:{type:String,default:null}
 },{timestamps:true});
 schema.index({shop:1,customerId:1,requestKey:1},{unique:true});
+// No TTL: deleting an ambiguous attempt could allow a duplicate charge.
+schema.index({lockKey:1},{unique:true,sparse:true});
 schema.index({status:1,updatedAt:1});
 export const LoopActionAttempt=mongoose.models.LoopActionAttempt||
   mongoose.model("LoopActionAttempt",schema);
+

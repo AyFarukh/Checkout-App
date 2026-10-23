@@ -2,3 +2,11 @@
 node_modules
 ~node_modules
 node_modules
+
+.env.loop-test
+.loop-live-state.json
+rewards/test/fixtures/loop-live-actions.json
+rewards/test-results/
+rewards/playwright-report/
+
+.loop-test-db/

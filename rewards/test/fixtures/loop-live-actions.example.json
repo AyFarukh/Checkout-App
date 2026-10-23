@@ -1,0 +1,14 @@
+{
+  "order-note": { "value": "FreeTheRoots authorized integration test" },
+  "edit-address": { "firstName": "REPLACE", "lastName": "REPLACE", "address1": "REPLACE", "address2": "", "city": "REPLACE", "countryCode": "US", "provinceCode": "", "zip": "", "phone": "", "company": "" },
+  "edit-products": { "lineId": "REPLACE_WITH_LOOP_LINE_ID", "quantity": 2 },
+  "discount": { "value": "REPLACE_WITH_VALID_SUBSCRIPTION_CODE" },
+  "frequency": { "interval": "MONTH", "intervalCount": 2 },
+  "reschedule": { "date": "YYYY-MM-DD" },
+  "delay": { "days": 7 },
+  "skip": {},
+  "order-now": { "preponeFutureOrder": true },
+  "gift": {},
+  "pause": { "confirmPause": true },
+  "cancel": { "confirmCancellation": true, "comment": "Authorized integration test" }
+}
