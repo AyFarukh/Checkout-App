@@ -15,7 +15,7 @@ const OPERATIONS=Object.freeze({
 export function prepareLoopAdminAction(action,subscriptionId,payload={}) {
   const operation=OPERATIONS[action];
   if(!operation) throw new Error("This action does not have a verified Admin API adapter");
-  if(!/^\\d+$/.test(String(subscriptionId))) throw new Error("Invalid Loop subscription ID");
+  if(!/^\d+$/.test(String(subscriptionId))) throw new Error("Invalid Loop subscription ID");
   if(action==="frequency"&&(!["WEEK","MONTH"].includes(payload.interval)||
       ![1,2,3,4,6].includes(Number(payload.intervalCount))))
     throw new Error("Invalid billing frequency");
