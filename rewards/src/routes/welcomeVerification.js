@@ -146,6 +146,18 @@ welcomeVerification.post("/subscriptions/action-execute", requireDatabase, async
     if (!sub) return res.status(403).json({ok:false,applied:false,code:"SUBSCRIPTION_NOT_OWNED"});
     if (String(sub.status).toUpperCase()!=="ACTIVE" && !["order-note"].includes(action))
       return res.status(409).json({ok:false,applied:false,code:"SUBSCRIPTION_NOT_ACTIVE"});
+    // Do not reserve or mutate an order on an unsupported subscription state.
+    // All mutations remain disabled until action-specific Loop integration tests pass.
+    if (action==="reschedule") {
+      const proposed=String(payload.date||"");
+      const midnight=Date.parse(proposed+"T00:00:00Z");
+      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(proposed)||
+          !Number.isFinite(midnight)||
+          new Date(midnight).toISOString().slice(0,10)!==proposed||
+          midnight<Date.now()+86400000)
+        return res.status(400).json({ok:false,applied:false,code:"INVALID_RESCHEDULE_DATE",
+          message:"Choose a valid date at least 24 hours ahead."});
+    }
     // Server-side request planning is allowed; actual execution is NOT.
     // Only actions with documented Admin API contracts expose their operation.
     let operation=null;
