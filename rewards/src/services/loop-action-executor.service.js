@@ -3,7 +3,7 @@ import { ShopifyOfflineToken } from '../models/ShopifyOfflineToken.js';
 import { LoopActionAttempt } from '../models/LoopActionAttempt.js';
 import { getCustomerLoopSubscriptions, loopAdminRequest, loopMutationsEnabled } from './loop-subscriptions.service.js';
 import { actionRequestHash, reserveLoopAction, claimLoopAction, finishLoopAction } from './loop-action-ledger.service.js';
-import { actionError, canonical, normalizeAction, prepareAction, stateHash, verifyAction } from './loop-action-contract.service.js';
+import { actionError, canonical, normalizeAction, prepareAction, stateHash, verifyAction, frequencyMatches } from './loop-action-contract.service.js';
 
 const keyPattern=/^[a-zA-Z0-9_-]{16,128}$/;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -42,7 +42,7 @@ function storedResult(attempt,replayed=false) {
   const applied=attempt.status==='applied';
   return {ok:applied,applied,verified:applied,replayed,action:attempt.action,requestKey:attempt.requestKey,operationState:attempt.status,retrySafe:attempt.status==='rejected',
     code:applied?'ACTION_APPLIED':attempt.status==='rejected'?(attempt.errorCode||'LOOP_REJECTED'):'ACTION_OUTCOME_UNKNOWN',
-    message:applied?'Your change was verified with Loop.':attempt.status==='rejected'?'The request was rejected. No verified change was applied.':'The outcome is not confirmed. Do not submit a new request; check this request again.'};
+    message:applied?'Your change was verified with Loop.':attempt.status==='rejected'&&attempt.errorCode==='NO_CHANGE'?'Billing and delivery already matched the requested frequency before this attempt and still match. No frequency change is claimed.':attempt.status==='rejected'?'The request was rejected. No verified change was applied.':'The outcome is not confirmed. Do not submit a new request; check this request again.'};
 }
 export function createLoopActionService({installationExists=shop=>ShopifyOfflineToken.exists({shop}),verificationDelayMs=300}={}) {
   async function authorized(bound) {
@@ -175,6 +175,13 @@ export function createLoopActionService({installationExists=shop=>ShopifyOffline
     if(!attempt) throw actionError('ACTION_NOT_FOUND',404);
     if((attempt.status==='unknown'||(attempt.status==='in_flight'&&Date.now()-new Date(attempt.updatedAt).getTime()>120000)) && attempt.context?.before && attempt.context?.plan) {
       const state=await read(bound,attempt.action);
+      // Recover old no-op frequency requests only after the worker has recorded
+      // unknown. Never release an in-flight worker or infer a new change.
+      if(attempt.status==='unknown'&&attempt.action==='frequency'&&
+          frequencyMatches(attempt.context.before,attempt.payload)&&frequencyMatches(state.subscription,attempt.payload)) {
+        const final=await finishLoopAction(attempt._id,'rejected','NO_CHANGE');
+        return storedResult(final||attempt,true);
+      }
       if(verifyAction(attempt.action,attempt.payload,attempt.context.before,state,attempt.context.plan)) {
         const final=await finishLoopAction(attempt._id,'applied');return storedResult(final||attempt,true);
       }

@@ -26,6 +26,10 @@ for(const [action,payload,method,path] of cases) test(`${action}: validates inpu
  assert.equal(verifyAction(action,normalized,before,{subscription:before,history:[],schedule:[]},plan),false,'unchanged state is not proof');
 });
 test('gift is explicitly blocked without an invented endpoint',()=>assert.throws(()=>normalizeAction('gift',{}),e=>e.code==='GIFT_API_UNAVAILABLE'));
+test('frequency rejects a no-op only when both policies already match',()=>{
+ assert.throws(()=>prepareAction('frequency','42347174',{interval:'MONTH',intervalCount:1},before,{now}),e=>e.code==='NO_CHANGE');
+ assert.doesNotThrow(()=>prepareAction('frequency','42347174',{interval:'MONTH',intervalCount:1},{...before,deliveryPolicy:{interval:'MONTH',intervalCount:2}},{now}));
+});
 test('strict validation rejects unknown fields, unsafe prices and invalid numeric types',()=>{
  for(const [a,p] of [['skip',{customerId:'1'}],['frequency',{interval:'MONTH',intervalCount:'2'}],['edit-products',{lineId:'7',quantity:2,price:0}],['order-now',{preponeFutureOrder:'true'}],['cancel',{}],['pause',{}],['order-note',{value:'a'.repeat(501)}],['discount',{value:''}],['reschedule',{date:'2026-02-30'}]])
   assert.throws(()=>normalizeAction(a,p),a);

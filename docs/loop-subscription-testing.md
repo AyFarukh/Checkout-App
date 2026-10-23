@@ -155,8 +155,8 @@ On that development theme, perform every supported action through Review change 
 
 ## Verification performed on 2026-10-23
 
-- `npm test`: 56 passed, 2 existing rewards webhook tests skipped without `MONGODB_URI`, zero failures.
-- Subscription integration: 35 passed, zero skipped or failures, using real Mongo and the local HTTP provider.
+- `npm test`: 57 passed, 2 existing rewards webhook tests skipped without `MONGODB_URI`, zero failures.
+- Subscription integration: 40 passed, zero skipped or failures, using real Mongo and the local HTTP provider.
 - Browser E2E: 33 passed, including the full stack and mobile form. This environment used a locally available Chromium headless shell with the documented single-process CI workaround.
 - No real Loop mutations, real Shopify sessions, production deployments or PR merges were performed.
 
@@ -169,6 +169,12 @@ The uploaded ENOENT failures came from a nonexistent FTR_THEME_ASSET path. Four 
 Loop Admin `GET /subscription/{id}` returns `data.orderNote`; its webhook entity uses `note`. The verifier and preview state hash now prefer `orderNote` when present, including explicit null values, and fall back to `note` only when the Admin field is absent. The HTTP fixture now returns the Admin shape. Regression tests cover exact note verification, state binding, replay and reconciliation of an existing unknown operation without another provider write.
 
 If an order-note request is already unknown, pull this branch and run only `npm run test:subscriptions:live -- --action order-note --status`. Keep the local database and `.loop-live-state.json` intact. A matching changed `orderNote` can reconcile the original attempt; a missing or mismatched value stays unknown. Do not create another request to bypass that state. API reference: https://developer.loopwork.co/reference/read-subscription-details.
+
+## Frequency no-op recovery
+
+Frequency preview now returns `NO_CHANGE` before reservation or dispatch when billing and delivery already match the requested interval/count. For an older frequency attempt recorded as unknown, status checks compare its stored before-state and the current provider read. Only when both policies already matched before and still match now is the attempt resolved with `NO_CHANGE` and its lock released. This records no successful frequency change and sends no provider write. Missing/mismatched policies remain unknown; active in-flight workers keep their lock.
+
+For this recovery, pull the branch and run `npm run test:subscriptions:live -- --action frequency --status` with the original local database and state file. The result has `code: "NO_CHANGE"`, `applied: false`, `verified: false`; the CLI exits nonzero because no applied change is claimed. The stored attempt is now resolved, so a subsequent deliberate change can use a new preview. Do not delete an unknown attempt to bypass a lock.
 
 ## Current release status
 

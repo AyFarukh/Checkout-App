@@ -30,6 +30,35 @@ for(const [action,payload] of actionCases) test(`${action}: real HTTP adapter, M
 test('gift cannot claim success or send an unverified provider request',async()=>{
  await assert.rejects(service.preview(identity,request('gift',{})),e=>e.code==='GIFT_API_UNAVAILABLE');assert.equal(provider.writes.length,0);
 });
+test('frequency no-op preview dispatches nothing and creates no lock',async()=>{
+ await assert.rejects(service.preview(identity,request('frequency',{interval:'MONTH',intervalCount:1})),e=>e.code==='NO_CHANGE');
+ assert.equal(provider.writes.length,0);assert.equal(await LoopActionAttempt.countDocuments({}),0);
+});
+for(const scenario of ['matches','changed','missing-policy'])test(`existing unknown frequency no-op: ${scenario}`,async()=>{
+ const b=request('frequency',{interval:'MONTH',intervalCount:1}),original=structuredClone(provider.subscription);
+ if(scenario==='changed')provider.subscription.deliveryPolicy.intervalCount=2;
+ if(scenario==='missing-policy'){delete original.deliveryPolicy;delete provider.subscription.deliveryPolicy;}
+ await LoopActionAttempt.create({...identity,subscriptionId:b.subscriptionId,action:b.action,payload:b.payload,requestKey:b.requestKey,requestHash:'old-no-op',status:'unknown',lockKey:`${identity.shop}:${b.subscriptionId}`,context:{before:original,plan:{pathname:'subscription/42347174/frequency',method:'PUT',body:{billingPolicy:b.payload,deliveryPolicy:b.payload}}}});
+ const result=await service.status(identity,b);
+ assert.equal(result.code,scenario==='matches'?'NO_CHANGE':'ACTION_OUTCOME_UNKNOWN');
+ assert.equal(result.applied,false);assert.equal(result.verified,false);assert.equal(provider.writes.length,0);
+ const stored=await LoopActionAttempt.findOne({requestKey:b.requestKey});
+ assert.equal(stored.status,scenario==='matches'?'rejected':'unknown');
+ assert.equal(Boolean(stored.lockKey),scenario!=='matches');
+ if(scenario==='matches'){
+  assert.equal((await service.status(identity,b)).code,'NO_CHANGE');
+  const next=request('frequency',{interval:'MONTH',intervalCount:2},'next-frequency-key-1234'),p=await service.preview(identity,next);
+  assert.equal((await service.execute(identity,{...next,previewToken:p.previewToken})).verified,true);
+  assert.equal(provider.writes.length,1);
+ }
+});
+test('an active frequency no-op worker keeps its lock during a status check',async()=>{
+ const b=request('frequency',{interval:'MONTH',intervalCount:1});
+ await LoopActionAttempt.create({...identity,subscriptionId:b.subscriptionId,action:b.action,payload:b.payload,requestKey:b.requestKey,requestHash:'active-frequency',status:'in_flight',lockKey:`${identity.shop}:${b.subscriptionId}`,context:{before:structuredClone(provider.subscription),plan:{}}});
+ const result=await service.status(identity,b);
+ assert.equal(result.code,'ACTION_OUTCOME_UNKNOWN');assert.equal(result.operationState,'in_flight');
+ assert.ok((await LoopActionAttempt.findOne({requestKey:b.requestKey})).lockKey);assert.equal(provider.writes.length,0);
+});
 test('Admin orderNote read-back verifies and replays one provider write',async()=>{
  provider.subscription.orderNote='old';delete provider.subscription.note;
  const b=request('order-note',{value:'new note'}),p=await service.preview(identity,b);

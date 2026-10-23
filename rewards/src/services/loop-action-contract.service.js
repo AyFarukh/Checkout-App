@@ -72,6 +72,7 @@ export const subscriptionLines = s => s.lineItems || s.lines || [];
 // Admin read-subscription-details returns orderNote. Webhook/older payloads use
 // note; fall back only when orderNote is absent, never when explicitly null.
 const subscriptionNote=s=>Object.hasOwn(s,'orderNote')?s.orderNote:s.note;
+export const frequencyMatches=(s,p)=>['billingPolicy','deliveryPolicy'].every(k=>s?.[k]?.interval===p.interval&&Number(s?.[k]?.intervalCount)===p.intervalCount);
 export function stateHash(s) {
   const relevant={id:String(s.id),status:s.status,next:nextEpoch(s),billing:s.billingPolicy,delivery:s.deliveryPolicy,lines:subscriptionLines(s),address:s.shippingAddress,discounts:s.discounts,note:subscriptionNote(s),isBillingRetryOn:s.isBillingRetryOn};
   return createHash('sha256').update(canonical(relevant)).digest('hex');
@@ -98,7 +99,10 @@ export function prepareAction(action,subscriptionId,payload,before,{now=Date.now
     if(epoch*1000<now+86400000||epoch*1000>now+366*86400000||epoch===old) fail('INVALID_RESCHEDULE_DATE');
     suffix='reschedule';body={newBillingDateEpoch:epoch,rescheduleFutureOrders:true,notifyCustomer:true};
   }
-  if(action==='frequency') {suffix='frequency';method='PUT';body={billingPolicy:{interval:p.interval,intervalCount:p.intervalCount},deliveryPolicy:{interval:p.interval,intervalCount:p.intervalCount},discountType:'OLD'};}
+  if(action==='frequency') {
+    if(frequencyMatches(before,p))throw actionError('NO_CHANGE',409,'Billing and delivery already match the requested frequency.');
+    suffix='frequency';method='PUT';body={billingPolicy:{interval:p.interval,intervalCount:p.intervalCount},deliveryPolicy:{interval:p.interval,intervalCount:p.intervalCount},discountType:'OLD'};
+  }
   if(action==='pause') {suffix='pause';body={};}
   if(action==='cancel') {suffix='cancel';body={notifyCustomer:true,...(p.comment!==undefined?{comment:p.comment}:{})};}
   if(action==='edit-products') {
@@ -128,7 +132,7 @@ export function verifyAction(action,p,before,after,plan) {
   if(['reschedule','delay'].includes(action)) return nextEpoch(s)===plan.body.newBillingDateEpoch;
   if(action==='pause') return s.status==='PAUSED';
   if(action==='cancel') return ['CANCELLED','CANCELED'].includes(s.status);
-  if(action==='frequency') return ['billingPolicy','deliveryPolicy'].every(k=>s[k]?.interval===p.interval&&Number(s[k]?.intervalCount)===p.intervalCount);
+  if(action==='frequency') return frequencyMatches(s,p);
   if(action==='edit-products') {
     const all=subscriptionLines(s),op=p.operation||'quantity';
     if(op==='remove')return !all.some(l=>String(l.id)===p.lineId);
