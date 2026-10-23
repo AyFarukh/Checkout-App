@@ -26,6 +26,10 @@ export function prepareLoopAdminAction(action,subscriptionId,payload={}) {
 }
 
 export async function executeLoopAdminAction(action,subscriptionId,payload,{signal}={}) {
+  // Execution must be wired only through a durable, customer-bound, verified write flow.
+  // This adapter remains fail-closed even if a global mutation flag is enabled.
+  if (process.env.LOOP_VERIFIED_ACTION_EXECUTION !== "enabled-after-integration-tests")
+    throw new Error("Loop action execution has not passed integration verification");
   const request=prepareLoopAdminAction(action,subscriptionId,payload);
   return loopAdminRequest(request.pathname,{...request,signal});
 }
