@@ -152,7 +152,7 @@ welcomeVerification.post("/subscriptions/action-execute", requireDatabase, async
     if (action==="order-now" && payload.preponeFutureOrder!==true)
       return res.status(400).json({ok:false,applied:false,code:"ORDER_NOW_CONFIRMATION_REQUIRED",
         message:"Confirm that placing an immediate order may charge the saved payment method."});
-    if (action==="reschedule" && !/^\\d{4}-\\d{2}-\\d{2}$/.test(String(payload.date||"")))
+    if (action==="reschedule" && !/^\d{4}-\d{2}-\d{2}$/.test(String(payload.date||"")))
       return res.status(400).json({ok:false,applied:false,code:"INVALID_DATE"});
     if (action==="delay" && ![7,14,30].includes(Number(payload.days)))
       return res.status(400).json({ok:false,applied:false,code:"INVALID_DELAY"});
