@@ -24,6 +24,8 @@ export function prepareLoopAdminAction(action,subscriptionId,payload={}) {
     throw new Error("Invalid billing frequency");
   if(action==="order-now"&&payload.preponeFutureOrder!==true)
     throw new Error("Immediate order requires explicit preponeFutureOrder confirmation");
+  if(action==="frequency" && (!Number.isInteger(Number(payload.intervalCount)) || Number(payload.intervalCount)<1))
+    throw new Error("Frequency must be a positive whole number");
   return {method:operation.method,pathname:`subscription/${subscriptionId}/${operation.suffix}`,
     body:operation.body(payload)};
 }
