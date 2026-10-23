@@ -5,6 +5,7 @@ import {loopAdminRequest} from "./loop-subscriptions.service.js";
 const OPERATIONS=Object.freeze({
   skip:{method:"POST",suffix:"skipNext",body:()=>undefined},
   "order-now":{method:"POST",suffix:"placeOrder",body:p=>({preponeFutureOrder:p.preponeFutureOrder===true})},
+  cancel:{method:"POST",suffix:"cancel",body:p=>({comment:p.comment||undefined,notifyCustomer:p.notifyCustomer!==false})},
   frequency:{method:"PUT",suffix:"frequency",body:p=>({
     billingPolicy:{interval:p.interval,intervalCount:p.intervalCount},
     deliveryPolicy:{interval:p.interval,intervalCount:p.intervalCount},
@@ -16,6 +17,8 @@ export function prepareLoopAdminAction(action,subscriptionId,payload={}) {
   const operation=OPERATIONS[action];
   if(!operation) throw new Error("This action does not have a verified Admin API adapter");
   if(!/^\d+$/.test(String(subscriptionId))) throw new Error("Invalid Loop subscription ID");
+  if(action==="cancel" && (payload.confirmCancellation!==true || (payload.comment!==undefined && (typeof payload.comment!=="string"||payload.comment.length>500))))
+    throw new Error("Cancellation requires explicit confirmation and a short optional comment");
   if(action==="frequency"&&(!["WEEK","MONTH"].includes(payload.interval)||
       ![1,2,3,4,6].includes(Number(payload.intervalCount))))
     throw new Error("Invalid billing frequency");
