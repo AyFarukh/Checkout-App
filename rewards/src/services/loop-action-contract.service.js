@@ -12,6 +12,8 @@ const fail = code => { throw actionError(code); };
 const id = v => typeof v==='string' && /^[1-9]\d{0,17}$/.test(v);
 const text = (v,max,empty=false) => typeof v==='string' && v.length<=max && (empty || v.trim().length>0) && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(v);
 const fields={skip:[],reschedule:['date'],delay:['days'],'order-now':['preponeFutureOrder'],frequency:['interval','intervalCount'],pause:['confirmPause'],cancel:['confirmCancellation','comment'],'edit-products':['operation','lineId','quantity','variantShopifyId'],'edit-address':['firstName','lastName','company','phone','address1','address2','city','countryCode','provinceCode','zip'],discount:['value'],'order-note':['value']};
+// This detects the supplied live-test template, not general address validity.
+export const addressFixturePlaceholderFields=payload=>Object.keys(payload||{}).filter(k=>fields['edit-address'].includes(k)&&/^(?:REPLACE(?:_|$)|YOUR_|ACTUAL_)/i.test(String(payload[k])));
 export function normalizeAction(action,payload) {
   if(action==='gift') throw actionError('GIFT_API_UNAVAILABLE',501,'Loop has not published a gift-order API contract. Use the Loop customer portal for gifting.');
   if(!Object.hasOwn(fields,action)) fail('UNSUPPORTED_ACTION');

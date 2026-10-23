@@ -3,7 +3,7 @@ import { ShopifyOfflineToken } from '../models/ShopifyOfflineToken.js';
 import { LoopActionAttempt } from '../models/LoopActionAttempt.js';
 import { getCustomerLoopSubscriptions, loopAdminRequest, loopMutationsEnabled } from './loop-subscriptions.service.js';
 import { actionRequestHash, reserveLoopAction, claimLoopAction, finishLoopAction } from './loop-action-ledger.service.js';
-import { actionError, canonical, normalizeAction, prepareAction, stateHash, verifyAction, frequencyMatches, nextScheduledOrder } from './loop-action-contract.service.js';
+import { actionError, canonical, normalizeAction, prepareAction, stateHash, verifyAction, frequencyMatches, nextScheduledOrder, addressFixturePlaceholderFields } from './loop-action-contract.service.js';
 
 const keyPattern=/^[a-zA-Z0-9_-]{16,128}$/;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -42,7 +42,7 @@ function storedResult(attempt,replayed=false) {
   const applied=attempt.status==='applied';
   return {ok:applied,applied,verified:applied,replayed,action:attempt.action,requestKey:attempt.requestKey,operationState:attempt.status,retrySafe:attempt.status==='rejected',
     code:applied?'ACTION_APPLIED':attempt.status==='rejected'?(attempt.errorCode||'LOOP_REJECTED'):'ACTION_OUTCOME_UNKNOWN',
-    message:applied?'Your change was verified with Loop.':attempt.status==='rejected'&&attempt.errorCode==='NO_CHANGE'?'Billing and delivery already matched the requested frequency before this attempt and still match. No frequency change is claimed.':attempt.status==='rejected'?'The request was rejected. No verified change was applied.':'The outcome is not confirmed. Do not submit a new request; check this request again.'};
+    message:applied?'Your change was verified with Loop.':attempt.status==='rejected'&&attempt.errorCode==='INVALID_TEST_FIXTURE_RECONCILED'?'Invalid test fixture resolved after operator confirmation and an unchanged-address read. No successful address change is claimed.':attempt.status==='rejected'&&attempt.errorCode==='NO_CHANGE'?'Billing and delivery already matched the requested frequency before this attempt and still match. No frequency change is claimed.':attempt.status==='rejected'?'The request was rejected. No verified change was applied.':'The outcome is not confirmed. Do not submit a new request; check this request again.'};
 }
 export function createLoopActionService({installationExists=shop=>ShopifyOfflineToken.exists({shop}),verificationDelayMs=300}={}) {
   async function authorized(bound) {
@@ -188,6 +188,31 @@ export function createLoopActionService({installationExists=shop=>ShopifyOffline
     }
     return storedResult(attempt,true);
   }
-  return {preview,execute,status,catalog};
+  // Operator-only CLI recovery. No HTTP route exposes this method. It does not
+  // infer a provider rejection: it records the operator's invalid-fixture
+  // resolution after checking the current address against the saved original.
+  async function recoverInvalidAddressFixture(identity,body) {
+    if(process.env.NODE_ENV!=='test')throw actionError('LOCAL_TEST_RECOVERY_ONLY',403);
+    if(body?.confirmWorkerStopped!==true)throw actionError('CONFIRM_WORKER_STOPPED_REQUIRED');
+    const bound=scope(identity,body?.subscriptionId);
+    if(!keyPattern.test(body?.requestKey||''))throw actionError('INVALID_REQUEST_KEY');
+    await authorized(bound);
+    const attempt=await LoopActionAttempt.findOne({...bound,requestKey:body.requestKey}).select('+payload +context');
+    if(attempt?.action!=='edit-address')throw actionError('INVALID_RECOVERY_ACTION');
+    if(attempt.status==='rejected'&&attempt.errorCode==='INVALID_TEST_FIXTURE_RECONCILED')return storedResult(attempt,true);
+    if(attempt.status!=='unknown'||!attempt.completedAt||Date.now()-new Date(attempt.completedAt).getTime()<120000)
+      throw actionError('RECOVERY_NOT_READY',409);
+    if(!addressFixturePlaceholderFields(attempt.payload).length)throw actionError('INVALID_FIXTURE_EVIDENCE_REQUIRED');
+    const original=attempt.context?.before;
+    if(String(original?.id)!==bound.subscriptionId||!['firstName','lastName','address1','city','countryCode'].every(k=>typeof original.shippingAddress?.[k]==='string'&&original.shippingAddress[k].trim()))
+      throw actionError('ORIGINAL_ADDRESS_UNAVAILABLE');
+    const {subscription:current}=await read(bound,'edit-address');
+    const keys=['firstName','lastName','company','phone','address1','address2','city','countryCode','provinceCode','zip'];
+    if(!current.shippingAddress||!keys.every(k=>String(current.shippingAddress[k]??'').trim()===String(original.shippingAddress[k]??'').trim()))
+      throw actionError('ADDRESS_STATE_CHANGED',409);
+    const final=await finishLoopAction(attempt._id,'rejected','INVALID_TEST_FIXTURE_RECONCILED');
+    return storedResult(final||attempt,true);
+  }
+  return {preview,execute,status,catalog,recoverInvalidAddressFixture};
 }
 export const loopActionService=createLoopActionService();

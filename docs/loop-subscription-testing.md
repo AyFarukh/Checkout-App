@@ -155,8 +155,8 @@ On that development theme, perform every supported action through Review change 
 
 ## Verification performed on 2026-10-23
 
-- `npm test`: 60 passed, 2 existing rewards webhook tests skipped without `MONGODB_URI`, zero failures.
-- Subscription integration: 42 passed, zero skipped or failures, using real Mongo and the local HTTP provider.
+- `npm test`: 62 passed, 2 existing rewards webhook tests skipped without `MONGODB_URI`, zero failures.
+- Subscription integration: 48 passed, zero skipped or failures, using real Mongo and the local HTTP provider.
 - Browser E2E: 33 passed, including the full stack and mobile form. This environment used a locally available Chromium headless shell with the documented single-process CI workaround.
 - No real Loop mutations, real Shopify sessions, production deployments or PR merges were performed.
 
@@ -183,6 +183,20 @@ The observed Admin schedule uses `status: "UNPROCESSED"` and an ISO `billingDate
 A skip still requires the original order ID to be read back as `SKIPPED` and a later next billing date. A date change alone or omission of the skipped row remains unknown and must not trigger another write. Regression tests cover missing evidence, ambiguous selection, replay and read-only recovery when the skipped row becomes visible.
 
 For the pre-dispatch `NEXT_ORDER_UNAVAILABLE` attempt, pull the fix, create a new skip preview, then execute and check status. The failed attempt sent no skip write. If any later dispatched attempt is unknown, use only status; do not create a new key.
+
+## Invalid address fixture recovery (local CLI only)
+
+The live runner rejects the supplied `REPLACE`, `REPLACE_...`, `YOUR_...` and `ACTUAL_...` address placeholders with `LIVE_FIXTURE_PLACEHOLDERS` before database or provider access. Diagnostics list only field names, never values. Replace the entire address fixture with the actual original address, preserve optional values, and change only address2 for the intended test.
+
+For an older unknown request that used this invalid template, do not delete its ledger or generate another key. Ensure the old live CLI command has exited and no other test worker is running. After at least two minutes, run:
+
+```bash
+npm run test:subscriptions:live -- --action edit-address --recover-invalid-address-fixture --confirm-worker-stopped
+```
+
+This operator-only command requires NODE_ENV=test and a dedicated local test database. It rechecks ownership and the provider's current address against all ten saved original address fields. It refuses missing original data, a changed address, a non-placeholder request, recent attempts, and in-flight workers. It sends no provider mutation. Only after those checks does it mark the local attempt resolved/rejected with `INVALID_TEST_FIXTURE_RECONCILED`, retain its history, release its lock and update the local state file. `applied` and `verified` remain false: this is an operator resolution of an invalid fixture, not proof of provider rejection or a successful address update. The HTTP dashboard cannot invoke this recovery command.
+
+After recovery and correction of the fixture, use `--action edit-address --new --preview` for a deliberate valid test. Do not run recovery for other unknown outcomes. If the provider state differs, preserve the lock and investigate the provider result instead.
 
 ## Current release status
 

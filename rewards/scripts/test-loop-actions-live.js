@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
 import {connectDatabase} from '../src/config/db.js';
 import {ShopifyOfflineToken} from '../src/models/ShopifyOfflineToken.js';
 import {loopActionService} from '../src/services/loop-action-executor.service.js';
-import {ACTIONS,canonical,normalizeAction} from '../src/services/loop-action-contract.service.js';
+import {ACTIONS,canonical,normalizeAction,addressFixturePlaceholderFields} from '../src/services/loop-action-contract.service.js';
 import {getCustomerLoopSubscriptions,loopAdminRequest} from '../src/services/loop-subscriptions.service.js';
 
 config({path:process.env.LOOP_TEST_ENV_FILE||'.env.loop-test',override:true});
@@ -35,12 +35,26 @@ async function main(){
   console.log(JSON.stringify({subscriptionId:s.id,status:s.status,nextBillingDateEpoch:s.nextOrderDateEpoch??s.nextBillingDateEpoch,billingPolicy:s.billingPolicy,lineItems:(s.lineItems||s.lines||[]).map(l=>({id:l.id,variantShopifyId:l.variantShopifyId,quantity:l.quantity})),hasShippingAddress:Boolean(s.shippingAddress)},null,2));return;
  }
  const action=option('--action');if(!ACTIONS.includes(action))throw Object.assign(Error(),{code:'SELECT_ONE_ACTION_WITH_ACTION_FLAG'});
+ if(args.includes('--recover-invalid-address-fixture')){
+  if(action!=='edit-address')throw Object.assign(Error(),{code:'INVALID_RECOVERY_ACTION'});
+  if(!args.includes('--confirm-worker-stopped'))throw Object.assign(Error(),{code:'CONFIRM_WORKER_STOPPED_REQUIRED'});
+  const url=new URL(process.env.MONGODB_URI);
+  if(process.env.NODE_ENV!=='test'||!['127.0.0.1','localhost'].includes(url.hostname))throw Object.assign(Error(),{code:'LOCAL_TEST_RECOVERY_ONLY'});
+  const state=JSON.parse(await readFile(stateFile,'utf8')),entry=state[action];
+  if(!entry)throw Object.assign(Error(),{code:'REQUEST_NOT_FOUND_IN_LOCAL_STATE'});
+  await connectDatabase();
+  const result=await loopActionService.recoverInvalidAddressFixture(identity,{subscriptionId:'42347174',requestKey:entry.requestKey,confirmWorkerStopped:true});
+  if(result.operationState==='rejected'){entry.status='rejected';await save(state);}
+  safePrint(result);return;
+ }
  if(args.includes('--status')){
   const state=JSON.parse(await readFile(stateFile,'utf8')),entry=state[action];if(!entry)throw Object.assign(Error(),{code:'REQUEST_NOT_FOUND_IN_LOCAL_STATE'});
   await connectDatabase();const result=await loopActionService.status(identity,{subscriptionId:'42347174',requestKey:entry.requestKey});
   entry.status=result.applied?'applied':result.operationState==='rejected'?'rejected':'unknown';await save(state);safePrint(result);if(!result.applied)process.exitCode=1;return;
  }
  const fixtures=JSON.parse(await readFile(process.env.LOOP_LIVE_FIXTURES||'test/fixtures/loop-live-actions.json','utf8'));
+ const placeholders=action==='edit-address'?addressFixturePlaceholderFields(fixtures[action]):[];
+ if(placeholders.length)throw Object.assign(Error(),{code:'LIVE_FIXTURE_PLACEHOLDERS',placeholderFields:placeholders});
  const payload=normalizeAction(action,fixtures[action]);
  if(!args.includes('--preview')&&!args.includes('--execute')&&!args.includes('--status'))throw Object.assign(Error(),{code:'USE_PREVIEW_EXECUTE_OR_STATUS'});
  let state={};try{state=JSON.parse(await readFile(stateFile,'utf8'));}catch(error){if(error.code!=='ENOENT')throw error;}
@@ -68,5 +82,5 @@ async function main(){
 }
 try{await main();}catch(error){
  // Do not print raw provider errors, URIs, credentials, or customer information.
- console.error(JSON.stringify({ok:false,code:/^[A-Z][A-Z0-9_]+$/.test(error.code||'')?error.code:'LIVE_TEST_FAILED',message:'Test did not pass. Review the configuration and runbook; do not retry with a new request key while the outcome is unknown.'}));process.exitCode=1;
+ console.error(JSON.stringify({ok:false,code:/^[A-Z][A-Z0-9_]+$/.test(error.code||'')?error.code:'LIVE_TEST_FAILED',...(error.code==='LIVE_FIXTURE_PLACEHOLDERS'?{fields:error.placeholderFields}:{}),message:'Test did not pass. Review the configuration and runbook; do not retry with a new request key while the outcome is unknown.'}));process.exitCode=1;
 }finally{await mongoose.disconnect();}

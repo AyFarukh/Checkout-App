@@ -30,6 +30,27 @@ for(const [action,payload] of actionCases) test(`${action}: real HTTP adapter, M
 test('gift cannot claim success or send an unverified provider request',async()=>{
  await assert.rejects(service.preview(identity,request('gift',{})),e=>e.code==='GIFT_API_UNAVAILABLE');assert.equal(provider.writes.length,0);
 });
+for(const scenario of ['unchanged','changed','active-worker','valid-fixture','recent'])test(`invalid address test-fixture recovery: ${scenario}`,async()=>{
+ const b=request('edit-address',{...provider.subscription.shippingAddress,address1:scenario==='valid-fixture'?'2 Test Road':'REPLACE'});
+ const original=structuredClone(provider.subscription);
+ await LoopActionAttempt.create({...identity,subscriptionId:b.subscriptionId,action:b.action,payload:b.payload,requestKey:b.requestKey,requestHash:'invalid-address-fixture',status:scenario==='active-worker'?'in_flight':'unknown',completedAt:new Date(Date.now()-(scenario==='recent'?0:180000)),lockKey:`${identity.shop}:${b.subscriptionId}`,context:{before:original,plan:{}}});
+ if(scenario==='changed')provider.subscription.shippingAddress.address2='changed';
+ const recover=()=>service.recoverInvalidAddressFixture(identity,{subscriptionId:b.subscriptionId,requestKey:b.requestKey,confirmWorkerStopped:true});
+ if(scenario==='unchanged'){
+  await assert.rejects(service.recoverInvalidAddressFixture(identity,b),e=>e.code==='CONFIRM_WORKER_STOPPED_REQUIRED');
+  const result=await recover();assert.equal(result.code,'INVALID_TEST_FIXTURE_RECONCILED');assert.equal(result.applied,false);assert.equal(result.verified,false);
+  assert.equal((await service.status(identity,b)).operationState,'rejected');
+  assert.equal((await recover()).code,'INVALID_TEST_FIXTURE_RECONCILED');
+ }else await assert.rejects(recover);
+ const stored=await LoopActionAttempt.findOne({requestKey:b.requestKey});
+ assert.equal(Boolean(stored.lockKey),scenario!=='unchanged');assert.equal(provider.writes.length,0);
+});
+test('invalid address fixture recovery is unavailable in production',async()=>{
+ process.env.NODE_ENV='production';
+ try{await assert.rejects(service.recoverInvalidAddressFixture(identity,{subscriptionId:'42347174',requestKey:'recovery-request-12345',confirmWorkerStopped:true}),e=>e.code==='LOCAL_TEST_RECOVERY_ONLY');}
+ finally{process.env.NODE_ENV='test';}
+ assert.equal(provider.writes.length,0);
+});
 test('skip rejects unavailable schedule evidence during preview without a reservation',async()=>{
  provider.schedule[0].billingDate='2020-01-01T00:00:00Z';
  await assert.rejects(service.preview(identity,request('skip',{})),e=>e.code==='NEXT_ORDER_UNAVAILABLE');
