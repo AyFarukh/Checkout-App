@@ -124,7 +124,7 @@ welcomeVerification.post("/subscriptions/action-execute", requireDatabase, async
   if (!signed(req.query)) return res.status(403).json({ok:false,applied:false,code:"INVALID_SIGNATURE"});
   const shop=String(req.query.shop||"").toLowerCase();
   const customerId=String(req.query.logged_in_customer_id||"");
-  if (!/^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$/.test(shop)||!/^\\d+$/.test(customerId))
+  if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop)||!/^\d+$/.test(customerId))
     return res.status(401).json({ok:false,applied:false,code:"SIGN_IN_REQUIRED"});
   if (!await ShopifyOfflineToken.exists({shop}))
     return res.status(403).json({ok:false,applied:false,code:"STORE_NOT_AUTHORIZED"});
@@ -152,7 +152,7 @@ welcomeVerification.post("/subscriptions/action-execute", requireDatabase, async
     if (["skip","order-now","frequency"].includes(action)) {
       try {
         const prepared=prepareLoopAdminAction(action,subscriptionId,payload);
-        operation={method:prepared.method,path:prepared.pathname,requestBody:prepared.body??null};
+        operation={supported:true,method:prepared.method};
       } catch(error) {
         return res.status(400).json({ok:false,applied:false,code:"INVALID_ACTION_DETAILS",message:error.message});
       }
