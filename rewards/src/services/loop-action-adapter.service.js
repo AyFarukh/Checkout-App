@@ -20,12 +20,10 @@ export function prepareLoopAdminAction(action,subscriptionId,payload={}) {
   if(action==="cancel" && (payload.confirmCancellation!==true || (payload.comment!==undefined && (typeof payload.comment!=="string"||payload.comment.length>500))))
     throw new Error("Cancellation requires explicit confirmation and a short optional comment");
   if(action==="frequency"&&(!["WEEK","MONTH"].includes(payload.interval)||
-      ![1,2,3,4,6].includes(Number(payload.intervalCount))))
+      ![1,2,3,4,6].includes(payload.intervalCount)))
     throw new Error("Invalid billing frequency");
   if(action==="order-now"&&payload.preponeFutureOrder!==true)
     throw new Error("Immediate order requires explicit preponeFutureOrder confirmation");
-  if(action==="frequency" && (!Number.isInteger(Number(payload.intervalCount)) || Number(payload.intervalCount)<1))
-    throw new Error("Frequency must be a positive whole number");
   return {method:operation.method,pathname:`subscription/${subscriptionId}/${operation.suffix}`,
     body:operation.body(payload)};
 }
