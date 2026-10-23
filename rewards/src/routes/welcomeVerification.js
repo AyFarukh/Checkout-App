@@ -4,6 +4,7 @@ import { requireDatabase } from "../config/db.js";
 import { ShopifyOfflineToken } from "../models/ShopifyOfflineToken.js";
 import { shopifyAdminGraphql } from "../services/shopify-admin.service.js";
 import { getCustomerLoopSubscriptions } from "../services/loop-subscriptions.service.js";
+import { prepareLoopAdminAction } from "../services/loop-action-adapter.service.js";
 import { enrichSubscriptionImages } from "../services/subscription-images.service.js";
 
 export const welcomeVerification = Router();
@@ -145,7 +146,18 @@ welcomeVerification.post("/subscriptions/action-execute", requireDatabase, async
     if (!sub) return res.status(403).json({ok:false,applied:false,code:"SUBSCRIPTION_NOT_OWNED"});
     if (String(sub.status).toUpperCase()!=="ACTIVE" && !["order-note"].includes(action))
       return res.status(409).json({ok:false,applied:false,code:"SUBSCRIPTION_NOT_ACTIVE"});
-    return res.status(200).json({ok:false,applied:false,action,code:"LOOP_ACTION_WRITE_NOT_READY",
+    // Server-side request planning is allowed; actual execution is NOT.
+    // Only actions with documented Admin API contracts expose their operation.
+    let operation=null;
+    if (["skip","order-now","frequency"].includes(action)) {
+      try {
+        const prepared=prepareLoopAdminAction(action,subscriptionId,payload);
+        operation={method:prepared.method,path:prepared.pathname,requestBody:prepared.body??null};
+      } catch(error) {
+        return res.status(400).json({ok:false,applied:false,code:"INVALID_ACTION_DETAILS",message:error.message});
+      }
+    }
+    return res.status(200).json({ok:false,applied:false,action,operation,code:"LOOP_ACTION_WRITE_NOT_READY",
       message:"Your request was verified, but this action is not yet enabled. No changes were made."});
   } catch(error) {
     console.error("[Subscription action execute]",error.message);
