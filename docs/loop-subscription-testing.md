@@ -29,13 +29,17 @@ npm ci
 npx playwright install chromium
 ```
 
-Set the absolute path to the theme JavaScript file so the browser harness tests your checkout. The adjacent CSS file is also loaded by the full-stack tests.
+The default browser suite uses a checksum-verified copy of the real dashboard JavaScript and CSS bundled with this backend branch. Its source is theme commit `a34362971aaa666a5d5f5eacd717076db5355565`, recorded in `rewards/test/fixtures/subscription-theme/manifest.json`. You do not need a sibling theme checkout or a particular folder name for this run.
+
+Clear any previously configured path before running the bundled tests:
 
 ```bash
-export FTR_THEME_ASSET="$(cd ../../Freetheroot-Shopify-Theme-Dev && pwd)/assets/ftr-subscription-dashboard.js"
+unset FTR_THEME_ASSET
 ```
 
-On PowerShell, set `$env:FTR_THEME_ASSET` to that file's full Windows path. Every npm command below works without yarn.
+On PowerShell use `Remove-Item Env:FTR_THEME_ASSET -ErrorAction SilentlyContinue`.
+
+To test your own theme checkout instead, set `FTR_THEME_ASSET` to its **actual existing absolute path**, with the dashboard CSS beside it. First pull `feature/loop-all-actions-confirmation-v1` there. An explicit missing or outdated asset now stops the suite once at startup, with an actionable error. The harness never silently falls back to the snapshot when an explicit checkout is invalid. The default snapshot proves that pinned theme version, not uncommitted changes in another directory.
 
 ## 2. Run the offline tests
 
@@ -151,10 +155,14 @@ On that development theme, perform every supported action through Review change 
 
 ## Verification performed on 2026-10-23
 
-- `npm test`: 51 passed, 2 existing rewards webhook tests skipped without `MONGODB_URI`, zero failures.
+- `npm test`: 55 passed, 2 existing rewards webhook tests skipped without `MONGODB_URI`, zero failures.
 - Subscription integration: 33 passed, zero skipped or failures, using real Mongo and the local HTTP provider.
 - Browser E2E: 33 passed, including the full stack and mobile form. This environment used a locally available Chromium headless shell with the documented single-process CI workaround.
 - No real Loop mutations, real Shopify sessions, production deployments or PR merges were performed.
+
+## Path-error regression fix
+
+The uploaded ENOENT failures came from a nonexistent FTR_THEME_ASSET path. Four new unit tests verify the default bundled assets, missing-path diagnostics, stale-theme detection and explicit paths containing spaces with adjacent CSS. Browser tests resolve assets before starting their servers or browsers.
 
 ## Current release status
 

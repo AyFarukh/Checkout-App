@@ -3,7 +3,8 @@ import express from 'express';
 import mongoose from 'mongoose';
 import {MongoMemoryServer} from 'mongodb-memory-server';
 import {createHmac} from 'node:crypto';
-import {fileURLToPath} from 'node:url';
+import {resolveSubscriptionThemeAssets} from '../support/subscription-theme-assets.js';
+const assets=resolveSubscriptionThemeAssets();
 import {startLoopFixture} from '../support/loop-fixture.js';
 import {ShopifyOfflineToken} from '../../src/models/ShopifyOfflineToken.js';
 import {LoopActionAttempt} from '../../src/models/LoopActionAttempt.js';
@@ -17,8 +18,8 @@ Object.assign(process.env,{NODE_ENV:'test',LOOP_ALLOW_LOCAL_TEST_API:'true',LOOP
 const app=express();app.use(express.json());
 app.get('/health',(_req,res)=>res.json({ok:true}));
 app.get('/',(_req,res)=>res.type('html').send('<link rel="stylesheet" href="/dashboard.css"><section class="ftr-sub" id="ftr-subscription-dashboard-test" data-endpoint="/apps/ftr-welcome/subscriptions"><main class="ftr-sub__main"><div class="ftr-sub__loading"></div></main></section><script src="/dashboard.js"></script>'));
-app.get('/dashboard.js',(_req,res)=>res.sendFile(process.env.FTR_THEME_ASSET||fileURLToPath(new URL('../../../../theme/assets/ftr-subscription-dashboard.js',import.meta.url))));
-app.get('/dashboard.css',(_req,res)=>res.sendFile((process.env.FTR_THEME_ASSET||fileURLToPath(new URL('../../../../theme/assets/ftr-subscription-dashboard.js',import.meta.url))).replace(/\.js$/,'.css')));
+app.get('/dashboard.js',(_req,res)=>res.sendFile(assets.js));
+app.get('/dashboard.css',(_req,res)=>res.sendFile(assets.css));
 app.get('/apps/ftr-welcome/subscriptions',(_req,res)=>res.json({ok:true,subscriptions:[provider.subscription]}));
 app.use('/apps/ftr-welcome/subscriptions',(req,_res,next)=>{
  const url=new URL(req.url,'http://fixture');

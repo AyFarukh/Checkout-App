@@ -1,7 +1,8 @@
 import {test,expect} from './fixtures.js';
 import {readFile} from 'node:fs/promises';
 import {actionCases,baseSubscription} from '../support/loop-fixture.js';
-const asset=new URL('../../../../theme/assets/ftr-subscription-dashboard.js',import.meta.url);
+import {resolveSubscriptionThemeAssets} from '../support/subscription-theme-assets.js';
+const assets=resolveSubscriptionThemeAssets();
 const labels={skip:'Skip next order',reschedule:'Reschedule',delay:'Delay','order-now':'Order now',frequency:'Change frequency',pause:'Pause subscription',cancel:'Cancel subscription','edit-products':'Edit products','edit-address':'Edit address',discount:'Discount code','order-note':'Order notes'};
 const fields={date:'Choose a new date',days:'Delay delivery by',intervalCount:'Every',interval:'Period',preponeFutureOrder:'Place an immediate order',confirmCancellation:'Confirm cancellation',confirmPause:'Confirm pause',lineId:'Product',quantity:'Quantity',value:null,firstName:'First name',lastName:'Last name',address1:'Address',city:'City',countryCode:'Country code',provinceCode:'State code',zip:'Postal code'};
 
@@ -9,7 +10,7 @@ async function setup(page,{unknown=false,rejected=false}={}) {
  const calls=[];
  await page.route('http://localhost:4124/**',async route=>{
   const path=new URL(route.request().url()).pathname;
-  if(path==='/dashboard.js')return route.fulfill({contentType:'text/javascript',body:await readFile(process.env.FTR_THEME_ASSET||asset,'utf8')});
+  if(path==='/dashboard.js')return route.fulfill({contentType:'text/javascript',body:await readFile(assets.js,'utf8')});
   if(path==='/')return route.fulfill({contentType:'text/html',body:'<section id="ftr-subscription-dashboard-test" data-endpoint="/apps/ftr-welcome/subscriptions"><main class="ftr-sub__main"><div class="ftr-sub__loading"></div></main></section><script src="/dashboard.js"></script>'});
   const body=route.request().method()==='POST'?route.request().postDataJSON():null;
   if(body)calls.push({path,body});
@@ -45,6 +46,7 @@ for(const [action,payload] of actionCases)test(`${action}: form -> preview -> ex
 test('editing an input invalidates the preview',async({page})=>{
  const calls=await setup(page);await page.getByRole('button',{name:'Order notes',exact:true}).click();const d=page.getByRole('dialog');
  await d.getByLabel('Order note',{exact:true}).fill('one');await d.getByRole('button',{name:'Review change'}).click();
+ await expect(d.getByRole('button',{name:'Confirm change'})).toBeVisible();
  await d.getByLabel('Order note',{exact:true}).fill('two');await expect(d.getByRole('button',{name:'Confirm change'})).toBeHidden();
  expect(calls.filter(c=>c.path.endsWith('action-execute'))).toHaveLength(0);
 });

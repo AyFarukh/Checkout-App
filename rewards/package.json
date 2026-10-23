@@ -11,7 +11,7 @@
     "test:shopify-sync": "node --test test/shopify-sync.unit.test.js",
     "test:shopify-sync:integration": "SHOPIFY_SYNC_INTEGRATION=1 node --test --test-concurrency=1 test/shopify-sync.integration.test.js",
     "test": "node --test test/*.unit.test.js",
-    "test:subscriptions": "node --test test/loop-*.unit.test.js test/subscription-actions.unit.test.js test/reschedule-preflight.unit.test.js",
+    "test:subscriptions": "node --test test/loop-*.unit.test.js test/subscription-actions.unit.test.js test/reschedule-preflight.unit.test.js test/subscription-theme-assets.unit.test.js",
     "test:subscriptions:integration": "node --test test/loop-actions.integration.test.js",
     "test:subscriptions:e2e": "playwright test",
     "test:subscriptions:live": "node scripts/test-loop-actions-live.js",
