@@ -155,14 +155,20 @@ On that development theme, perform every supported action through Review change 
 
 ## Verification performed on 2026-10-23
 
-- `npm test`: 55 passed, 2 existing rewards webhook tests skipped without `MONGODB_URI`, zero failures.
-- Subscription integration: 33 passed, zero skipped or failures, using real Mongo and the local HTTP provider.
+- `npm test`: 56 passed, 2 existing rewards webhook tests skipped without `MONGODB_URI`, zero failures.
+- Subscription integration: 35 passed, zero skipped or failures, using real Mongo and the local HTTP provider.
 - Browser E2E: 33 passed, including the full stack and mobile form. This environment used a locally available Chromium headless shell with the documented single-process CI workaround.
 - No real Loop mutations, real Shopify sessions, production deployments or PR merges were performed.
 
 ## Path-error regression fix
 
 The uploaded ENOENT failures came from a nonexistent FTR_THEME_ASSET path. Four new unit tests verify the default bundled assets, missing-path diagnostics, stale-theme detection and explicit paths containing spaces with adjacent CSS. Browser tests resolve assets before starting their servers or browsers.
+
+## Admin order-note verification fix
+
+Loop Admin `GET /subscription/{id}` returns `data.orderNote`; its webhook entity uses `note`. The verifier and preview state hash now prefer `orderNote` when present, including explicit null values, and fall back to `note` only when the Admin field is absent. The HTTP fixture now returns the Admin shape. Regression tests cover exact note verification, state binding, replay and reconciliation of an existing unknown operation without another provider write.
+
+If an order-note request is already unknown, pull this branch and run only `npm run test:subscriptions:live -- --action order-note --status`. Keep the local database and `.loop-live-state.json` intact. A matching changed `orderNote` can reconcile the original attempt; a missing or mismatched value stays unknown. Do not create another request to bypass that state. API reference: https://developer.loopwork.co/reference/read-subscription-details.
 
 ## Current release status
 

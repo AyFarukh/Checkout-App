@@ -1,7 +1,7 @@
 import http from 'node:http';
 export function baseSubscription() {
  const date=new Date(Date.now()+10*86400000);date.setUTCHours(14,0,0,0);
- return {id:42347174,status:'ACTIVE',nextBillingDateEpoch:Math.floor(date.getTime()/1000),customer:{shopifyId:123},billingPolicy:{interval:'MONTH',intervalCount:1},deliveryPolicy:{interval:'MONTH',intervalCount:1},lineItems:[{id:7,quantity:1,productTitle:'Test product'}],shippingAddress:{firstName:'Test',lastName:'User',address1:'1 Test Road',city:'Boston',countryCode:'US',provinceCode:'MA',zip:'02108'},note:'',discounts:[]};
+ return {id:42347174,status:'ACTIVE',nextBillingDateEpoch:Math.floor(date.getTime()/1000),customer:{shopifyId:123},billingPolicy:{interval:'MONTH',intervalCount:1},deliveryPolicy:{interval:'MONTH',intervalCount:1},lineItems:[{id:7,quantity:1,productTitle:'Test product'}],shippingAddress:{firstName:'Test',lastName:'User',address1:'1 Test Road',city:'Boston',countryCode:'US',provinceCode:'MA',zip:'02108'},orderNote:'',discounts:[]};
 }
 export const actionCases=[['skip',{}],['reschedule',{date:new Date(Date.now()+20*86400000).toISOString().slice(0,10)}],['delay',{days:7}],['order-now',{preponeFutureOrder:true}],['frequency',{interval:'WEEK',intervalCount:2}],['pause',{confirmPause:true}],['cancel',{confirmCancellation:true}],['edit-products',{lineId:'7',quantity:2}],['edit-address',{...baseSubscription().shippingAddress,address1:'2 Test Road'}],['discount',{value:'TEST10'}],['order-note',{value:'Leave at the door'}]];
 export async function startLoopFixture() {
@@ -35,7 +35,7 @@ export async function startLoopFixture() {
     else if(path.endsWith('/line')&&req.method==='POST')s.lineItems.push({id:8,variantShopifyId:b.variantShopifyId,quantity:b.quantity});
     else if(path.endsWith('/address'))s.shippingAddress=b;
     else if(path.endsWith('/discount'))s.discounts.push({node:{code:b.discountCode}});
-    else if(path.endsWith('/note'))s.note=b.note;
+    else if(path.endsWith('/note')){if(Object.hasOwn(s,'orderNote'))s.orderNote=b.note;else s.note=b.note;}
     else {res.writeHead(404);return res.end('{"success":false}');}
    }
    if(fixture.ambiguousFailure){res.writeHead(500);return res.end('{"success":false}');}

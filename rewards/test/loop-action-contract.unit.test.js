@@ -47,6 +47,15 @@ test('state hash uses stable key order and binds relevant state',()=>{
  assert.equal(stateHash(before),stateHash({...before,shippingAddress:{...before.shippingAddress},id:42347174}));
  assert.notEqual(stateHash(before),stateHash({...before,note:'changed'}));
 });
+test('Admin orderNote is authoritative for state binding and exact verification',()=>{
+ const initial={...before,orderNote:'old'};delete initial.note;
+ const updated={...initial,orderNote:'Leave at the door'};
+ assert.notEqual(stateHash(initial),stateHash(updated));
+ assert.equal(verifyAction('order-note',{value:'Leave at the door'},initial,{subscription:updated},{}),true);
+ assert.equal(verifyAction('order-note',{value:'wrong'},initial,{subscription:updated},{}),false);
+ assert.equal(verifyAction('order-note',{value:'Leave at the door'},initial,{subscription:{...updated,orderNote:null,note:'Leave at the door'}},{}),false);
+ assert.equal(verifyAction('order-note',{value:''},initial,{subscription:{...initial,orderNote:''}},{}),true);
+});
 test('merchant calendar dates preserve billing time through DST',()=>{
  assert.equal(dateEpoch('2026-11-06','America/New_York',before.nextBillingDateEpoch),1793973600);
  assert.equal(new Date(dateEpoch('2026-03-09','America/New_York',Date.parse('2026-03-07T15:00:00Z')/1000)*1000).toISOString(),'2026-03-09T14:00:00.000Z');

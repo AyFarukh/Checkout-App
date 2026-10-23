@@ -69,8 +69,11 @@ export function dateEpoch(date,timezone,previousEpoch) {
 }
 export const nextEpoch = s => Number(s.nextOrderDateEpoch ?? s.nextBillingDateEpoch);
 export const subscriptionLines = s => s.lineItems || s.lines || [];
+// Admin read-subscription-details returns orderNote. Webhook/older payloads use
+// note; fall back only when orderNote is absent, never when explicitly null.
+const subscriptionNote=s=>Object.hasOwn(s,'orderNote')?s.orderNote:s.note;
 export function stateHash(s) {
-  const relevant={id:String(s.id),status:s.status,next:nextEpoch(s),billing:s.billingPolicy,delivery:s.deliveryPolicy,lines:subscriptionLines(s),address:s.shippingAddress,discounts:s.discounts,note:s.note,isBillingRetryOn:s.isBillingRetryOn};
+  const relevant={id:String(s.id),status:s.status,next:nextEpoch(s),billing:s.billingPolicy,delivery:s.deliveryPolicy,lines:subscriptionLines(s),address:s.shippingAddress,discounts:s.discounts,note:subscriptionNote(s),isBillingRetryOn:s.isBillingRetryOn};
   return createHash('sha256').update(canonical(relevant)).digest('hex');
 }
 export function prepareAction(action,subscriptionId,payload,before,{now=Date.now(),timezone=process.env.LOOP_BILLING_TIMEZONE}={}) {
@@ -134,7 +137,7 @@ export function verifyAction(action,p,before,after,plan) {
     return all.some(l=>String(l.id)===p.lineId&&Number(l.quantity)===p.quantity);
   }
   if(action==='edit-address') return Object.keys(p).every(k=>String(s.shippingAddress?.[k]||'').trim()===p[k]);
-  if(action==='order-note') return s.note===p.value;
+  if(action==='order-note') return subscriptionNote(s)===p.value;
   if(action==='discount') return (s.discounts||[]).some(x=>{const d=x.node||x;return !d.rejectionReason && String(d.code||d.discountCode||d.title||'').toUpperCase()===p.value.toUpperCase();});
   if(action==='skip') return Boolean(plan.scheduleId) && nextEpoch(s)>nextEpoch(before) && (after.schedule||[]).some(o=>String(o.id)===plan.scheduleId&&o.status==='SKIPPED');
   if(action==='order-now') return Array.isArray(plan.historyIds) && (after.history||[]).some(o=>!plan.historyIds.includes(String(o.id))&&o.status==='SUCCESS'&&o.shopifyId);

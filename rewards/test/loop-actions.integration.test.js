@@ -30,6 +30,24 @@ for(const [action,payload] of actionCases) test(`${action}: real HTTP adapter, M
 test('gift cannot claim success or send an unverified provider request',async()=>{
  await assert.rejects(service.preview(identity,request('gift',{})),e=>e.code==='GIFT_API_UNAVAILABLE');assert.equal(provider.writes.length,0);
 });
+test('Admin orderNote read-back verifies and replays one provider write',async()=>{
+ provider.subscription.orderNote='old';delete provider.subscription.note;
+ const b=request('order-note',{value:'new note'}),p=await service.preview(identity,b);
+ const result=await service.execute(identity,{...b,previewToken:p.previewToken});
+ assert.equal(result.verified,true);assert.equal(provider.writes.length,1);
+ assert.equal((await service.execute(identity,{...b,previewToken:p.previewToken})).replayed,true);
+ assert.equal(provider.writes.length,1);
+});
+test('an existing unknown Admin orderNote attempt reconciles without redispatch',async()=>{
+ const original={...provider.subscription,orderNote:'old'};delete original.note;
+ provider.subscription={...original,orderNote:'already applied'};
+ const b=request('order-note',{value:'already applied'});
+ await LoopActionAttempt.create({...identity,subscriptionId:b.subscriptionId,action:b.action,payload:b.payload,requestKey:b.requestKey,requestHash:'existing-unknown',status:'unknown',lockKey:`${identity.shop}:${b.subscriptionId}`,context:{before:original,plan:{pathname:'subscription/42347174/note',method:'PUT',body:{note:b.payload.value}}}});
+ const result=await service.status(identity,b);
+ assert.equal(result.applied,true);assert.equal(result.verified,true);
+ assert.equal(provider.writes.length,0);
+ assert.equal((await LoopActionAttempt.findOne({requestKey:b.requestKey})).lockKey,undefined);
+});
 for(const operation of ['add','swap','remove'])test(`edit-products ${operation}: provider operation is verified`,async()=>{
  if(operation==='remove')provider.subscription.lineItems.push({id:8,quantity:1});
  const payload={operation,...(operation==='add'?{}:{lineId:'7'}),...(operation==='remove'?{}:{quantity:2,variantShopifyId:'101'})};
@@ -60,7 +78,7 @@ test('key reuse with a different action or body is rejected',async()=>{
 test('payload and subscription state are bound to the preview',async()=>{
  const a=request('order-note',{value:'one'}),p=await service.preview(identity,a);
  await assert.rejects(service.execute(identity,{...a,payload:{value:'two'},previewToken:p.previewToken}),e=>e.code==='INVALID_PREVIEW');
- provider.subscription.note='external edit';
+ provider.subscription.orderNote='external edit';
  await assert.rejects(service.execute(identity,{...a,previewToken:p.previewToken}),e=>e.code==='STALE_PREVIEW');assert.equal(provider.writes.length,0);
 });
 test('unknown outcome survives new executor instance and blocks every new key',async()=>{
@@ -73,7 +91,7 @@ test('unknown outcome survives new executor instance and blocks every new key',a
 });
 test('read-only reconciliation can verify a delayed result without another write',async()=>{
  const b=request('order-note',{value:'delayed'}),p=await service.preview(identity,b);provider.noStateChange=true;
- await service.execute(identity,{...b,previewToken:p.previewToken});provider.subscription.note='delayed';
+ await service.execute(identity,{...b,previewToken:p.previewToken});provider.subscription.orderNote='delayed';
  const result=await service.status(identity,{subscriptionId:'42347174',requestKey:b.requestKey});assert.equal(result.applied,true);assert.equal(provider.writes.length,1);
 });
 test('provider HTTP 200 success:false is a rejection, not success',async()=>{
@@ -120,13 +138,13 @@ test('in-flight record from a crashed worker is reconciled without redispatch',a
  const b=request('order-note',{value:'after crash'}),before=structuredClone(provider.subscription);
  const record=await LoopActionAttempt.create({...identity,subscriptionId:b.subscriptionId,action:b.action,payload:b.payload,requestKey:b.requestKey,requestHash:'crashed-request',lockKey:`${identity.shop}:${b.subscriptionId}`,status:'in_flight',context:{before,plan:{pathname:'subscription/42347174/note',method:'PUT',body:{note:b.payload.value}}}});
  await LoopActionAttempt.collection.updateOne({_id:record._id},{$set:{updatedAt:new Date(Date.now()-180000)}});
- provider.subscription.note=b.payload.value;
+ provider.subscription.orderNote=b.payload.value;
  const result=await service.status(identity,b);assert.equal(result.applied,true);assert.equal(result.operationState,'applied');assert.equal(provider.writes.length,0);
 });
 test('recent in-flight operations are never released by a concurrent status poll',async()=>{
  const b=request('order-note',{value:'pending'});
  await LoopActionAttempt.create({...identity,subscriptionId:b.subscriptionId,action:b.action,payload:b.payload,requestKey:b.requestKey,requestHash:'request',lockKey:`${identity.shop}:${b.subscriptionId}`,status:'in_flight',context:{before:structuredClone(provider.subscription),plan:{}}});
- provider.subscription.note='pending';const result=await service.status(identity,b);assert.equal(result.applied,false);assert.equal(result.operationState,'in_flight');
+ provider.subscription.orderNote='pending';const result=await service.status(identity,b);assert.equal(result.applied,false);assert.equal(result.operationState,'in_flight');
 });
 test('pre-dispatch failures carry an explicit safe-to-review marker',async()=>{
  provider.schedule=[];const b=request('skip',{}),p=await service.preview(identity,b);
