@@ -24,3 +24,8 @@ test("unknown actions and invalid identifiers fail closed",()=>{
   assert.throws(()=>prepareLoopAdminAction("skip","../other",{}));
   assert.throws(()=>prepareLoopAdminAction("frequency","42347174",{interval:"DAY",intervalCount:0}));
 });
+
+test("numeric subscription IDs are accepted and nonnumeric IDs rejected",()=>{
+  assert.equal(prepareLoopAdminAction("skip","42347174").pathname,"subscription/42347174/skipNext");
+  assert.throws(()=>prepareLoopAdminAction("skip","abc"));
+});
