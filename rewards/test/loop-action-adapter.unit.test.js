@@ -29,3 +29,11 @@ test("numeric subscription IDs are accepted and nonnumeric IDs rejected",()=>{
   assert.equal(prepareLoopAdminAction("skip","42347174").pathname,"subscription/42347174/skipNext");
   assert.throws(()=>prepareLoopAdminAction("skip","abc"));
 });
+
+test("cancellation requires an explicit acknowledgment",()=>{
+  assert.throws(()=>prepareLoopAdminAction("cancel","42347174",{}));
+  const operation=prepareLoopAdminAction("cancel","42347174",{confirmCancellation:true,comment:"Requested by customer"});
+  assert.equal(operation.method,"POST");
+  assert.equal(operation.pathname,"subscription/42347174/cancel");
+  assert.equal(operation.body.comment,"Requested by customer");
+});
