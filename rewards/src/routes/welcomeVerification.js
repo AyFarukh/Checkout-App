@@ -149,6 +149,13 @@ welcomeVerification.post("/subscriptions/action-execute", requireDatabase, async
     // Server-side request planning is allowed; actual execution is NOT.
     // Only actions with documented Admin API contracts expose their operation.
     let operation=null;
+    if (action==="order-now" && payload.preponeFutureOrder!==true)
+      return res.status(400).json({ok:false,applied:false,code:"ORDER_NOW_CONFIRMATION_REQUIRED",
+        message:"Confirm that placing an immediate order may charge the saved payment method."});
+    if (action==="reschedule" && !/^\\d{4}-\\d{2}-\\d{2}$/.test(String(payload.date||"")))
+      return res.status(400).json({ok:false,applied:false,code:"INVALID_DATE"});
+    if (action==="delay" && ![7,14,30].includes(Number(payload.days)))
+      return res.status(400).json({ok:false,applied:false,code:"INVALID_DELAY"});
     if (["skip","order-now","frequency"].includes(action)) {
       try {
         const prepared=prepareLoopAdminAction(action,subscriptionId,payload);
