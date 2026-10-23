@@ -51,6 +51,20 @@ test('invalid address fixture recovery is unavailable in production',async()=>{
  finally{process.env.NODE_ENV='test';}
  assert.equal(provider.writes.length,0);
 });
+for(const scenario of ['unchanged','changed','active-worker','recent'])test(`operator unchanged-address resolution: ${scenario}`,async()=>{
+ const b=request('edit-address',{...provider.subscription.shippingAddress,address2:'test change',countryCode:'GB'});
+ await LoopActionAttempt.create({...identity,subscriptionId:b.subscriptionId,action:b.action,payload:b.payload,requestKey:b.requestKey,requestHash:'address-baseline-mismatch',status:scenario==='active-worker'?'in_flight':'unknown',completedAt:new Date(Date.now()-(scenario==='recent'?0:180000)),lockKey:`${identity.shop}:${b.subscriptionId}`,context:{before:structuredClone(provider.subscription),plan:{}}});
+ if(scenario==='changed')provider.subscription.shippingAddress.address2='actual change';
+ const body={subscriptionId:b.subscriptionId,requestKey:b.requestKey,confirmWorkerStopped:true};
+ if(scenario==='unchanged'){
+  await assert.rejects(service.recoverUnchangedAddressFixture(identity,{...body,confirmWorkerStopped:false}),e=>e.code==='CONFIRM_WORKER_STOPPED_REQUIRED');
+  const result=await service.recoverUnchangedAddressFixture(identity,body);
+  assert.equal(result.code,'UNCHANGED_ADDRESS_RECONCILED');assert.equal(result.applied,false);assert.equal(result.verified,false);
+  assert.equal((await service.status(identity,b)).operationState,'rejected');
+ }else await assert.rejects(service.recoverUnchangedAddressFixture(identity,body));
+ assert.equal(Boolean((await LoopActionAttempt.findOne({requestKey:b.requestKey})).lockKey),scenario!=='unchanged');
+ assert.equal(provider.writes.length,0);
+});
 test('skip rejects unavailable schedule evidence during preview without a reservation',async()=>{
  provider.schedule[0].billingDate='2020-01-01T00:00:00Z';
  await assert.rejects(service.preview(identity,request('skip',{})),e=>e.code==='NEXT_ORDER_UNAVAILABLE');
@@ -160,11 +174,14 @@ test('read-only reconciliation can verify a delayed result without another write
 test('provider HTTP 200 success:false is a rejection, not success',async()=>{
  const b=request('skip',{}),p=await service.preview(identity,b);provider.businessFailure=true;
  const result=await service.execute(identity,{...b,previewToken:p.previewToken});assert.equal(result.applied,false);assert.equal(result.code,'LOOP_REJECTED');
+ assert.equal(result.providerHttpStatus,200);assert.equal(result.providerFailureKind,'BUSINESS_REJECTION');
  assert.equal((await LoopActionAttempt.findOne({requestKey:b.requestKey})).status,'rejected');
 });
 test('HTTP 500 after a provider write is unknown and is never retried',async()=>{
  const b=request('skip',{}),p=await service.preview(identity,b);provider.ambiguousFailure=true;
  const result=await service.execute(identity,{...b,previewToken:p.previewToken});assert.equal(result.code,'ACTION_OUTCOME_UNKNOWN');
+ assert.equal(result.providerHttpStatus,500);assert.equal(result.providerFailureKind,'HTTP_ERROR');
+ const replay=await service.status(identity,b);assert.equal(replay.providerHttpStatus,500);assert.equal(replay.providerFailureKind,'HTTP_ERROR');
  await service.execute(identity,{...b,previewToken:p.previewToken});assert.equal(provider.writes.length,1);
 });
 test('ownership, shop, customer and test allowlist failures dispatch nothing',async()=>{

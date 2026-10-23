@@ -74,10 +74,12 @@ export async function loopAdminRequest(pathname, { method = "GET", body, signal,
     // Provider messages can contain personal details. Never forward or log them.
     const error=serviceError('Loop rejected the request',502);
     error.code='LOOP_REJECTED';
+    error.providerHttpStatus=response.status;
+    error.providerFailureKind=response.ok?'BUSINESS_REJECTION':'HTTP_ERROR';
     error.definiteRejection=(response.ok && result?.success===false)||[400,401,403,404,422].includes(response.status);
     throw error;
   }
-  if(!result || typeof result!=='object' || result.message && !('success' in result) && !('data' in result)) throw serviceError('Unexpected Loop response',502);
+  if(!result || typeof result!=='object' || result.message && !('success' in result) && !('data' in result)) throw Object.assign(serviceError('Unexpected Loop response',502),{providerHttpStatus:response.status,providerFailureKind:'UNEXPECTED_RESPONSE'});
   return result;
 }
 

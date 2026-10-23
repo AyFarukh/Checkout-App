@@ -10,3 +10,4 @@ rewards/test-results/
 rewards/playwright-report/
 
 .loop-test-db/
+.loop-original-address.json

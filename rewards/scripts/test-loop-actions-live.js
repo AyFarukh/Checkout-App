@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import {config} from 'dotenv';
-import {readFile,writeFile} from 'node:fs/promises';
+import {readFile,writeFile,chmod} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import mongoose from 'mongoose';
 import {connectDatabase} from '../src/config/db.js';
@@ -8,12 +8,13 @@ import {ShopifyOfflineToken} from '../src/models/ShopifyOfflineToken.js';
 import {loopActionService} from '../src/services/loop-action-executor.service.js';
 import {ACTIONS,canonical,normalizeAction,addressFixturePlaceholderFields} from '../src/services/loop-action-contract.service.js';
 import {getCustomerLoopSubscriptions,loopAdminRequest} from '../src/services/loop-subscriptions.service.js';
+import {prepareAddressTestFixture} from '../src/services/loop-test-address.service.js';
 
 config({path:process.env.LOOP_TEST_ENV_FILE||'.env.loop-test',override:true});
 const args=process.argv.slice(2),option=name=>{const i=args.indexOf(name);return i<0?undefined:args[i+1];};
 const stateFile=process.env.LOOP_LIVE_STATE_FILE||'.loop-live-state.json';
 async function save(state){await writeFile(stateFile,JSON.stringify(state,null,2)+'\n',{mode:0o600});}
-const safePrint=result=>console.log(JSON.stringify(Object.fromEntries(['ok','applied','verified','replayed','code','action','requestKey','message'].filter(k=>result[k]!==undefined).map(k=>[k,result[k]])),null,2));
+const safePrint=result=>console.log(JSON.stringify(Object.fromEntries(['ok','applied','verified','replayed','code','action','requestKey','providerHttpStatus','providerFailureKind','message'].filter(k=>result[k]!==undefined).map(k=>[k,result[k]])),null,2));
 async function main(){
  if(args.includes('--list')){for(const action of ACTIONS)console.log(action+(action==='gift'?' — BLOCKED: published gift-order API contract required':''));return;}
  if(!['test','development'].includes(process.env.NODE_ENV))throw Object.assign(Error(),{code:'USE_LOCAL_TEST_ENVIRONMENT'});
@@ -35,7 +36,22 @@ async function main(){
   console.log(JSON.stringify({subscriptionId:s.id,status:s.status,nextBillingDateEpoch:s.nextOrderDateEpoch??s.nextBillingDateEpoch,billingPolicy:s.billingPolicy,lineItems:(s.lineItems||s.lines||[]).map(l=>({id:l.id,variantShopifyId:l.variantShopifyId,quantity:l.quantity})),hasShippingAddress:Boolean(s.shippingAddress)},null,2));return;
  }
  const action=option('--action');if(!ACTIONS.includes(action))throw Object.assign(Error(),{code:'SELECT_ONE_ACTION_WITH_ACTION_FLAG'});
- if(args.includes('--recover-invalid-address-fixture')){
+ if(args.includes('--prepare-address-fixture')){
+  if(action!=='edit-address'||process.env.NODE_ENV!=='test')throw Object.assign(Error(),{code:'LOCAL_ADDRESS_TEST_ONLY'});
+  const subscriptions=await getCustomerLoopSubscriptions(identity.customerId);
+  if(!subscriptions.some(s=>String(s.id)==='42347174'))throw Object.assign(Error(),{code:'SUBSCRIPTION_NOT_OWNED'});
+  const {data:s}=await loopAdminRequest('subscription/42347174');
+  if(String(s.customer?.shopifyId)!==identity.customerId)throw Object.assign(Error(),{code:'SUBSCRIPTION_NOT_OWNED'});
+  const {original,payload}=prepareAddressTestFixture(s),backup={subscriptionId:'42347174',address:original};
+  try{await writeFile('.loop-original-address.json',JSON.stringify(backup,null,2)+'\n',{mode:0o600,flag:'wx'});}
+  catch(error){if(error.code!=='EEXIST')throw error;const saved=JSON.parse(await readFile('.loop-original-address.json','utf8'));if(canonical(saved)!==canonical(backup))throw Object.assign(Error(),{code:'ORIGINAL_ADDRESS_BACKUP_DIFFERS'});}
+  await chmod('.loop-original-address.json',0o600);
+  const file=process.env.LOOP_LIVE_FIXTURES||'test/fixtures/loop-live-actions.json';
+  const fixtures=JSON.parse(await readFile(file,'utf8'));fixtures['edit-address']=payload;
+  await writeFile(file,JSON.stringify(fixtures,null,2)+'\n',{mode:0o600});await chmod(file,0o600);
+  console.log(JSON.stringify({ok:true,code:'ADDRESS_FIXTURE_PREPARED',changedFields:['address2'],originalSaved:true,message:'Current address copied privately; only address2 changed. No provider mutation sent.'}));return;
+ }
+ if(args.includes('--recover-invalid-address-fixture')||args.includes('--resolve-unchanged-address')){
   if(action!=='edit-address')throw Object.assign(Error(),{code:'INVALID_RECOVERY_ACTION'});
   if(!args.includes('--confirm-worker-stopped'))throw Object.assign(Error(),{code:'CONFIRM_WORKER_STOPPED_REQUIRED'});
   const url=new URL(process.env.MONGODB_URI);
@@ -43,7 +59,8 @@ async function main(){
   const state=JSON.parse(await readFile(stateFile,'utf8')),entry=state[action];
   if(!entry)throw Object.assign(Error(),{code:'REQUEST_NOT_FOUND_IN_LOCAL_STATE'});
   await connectDatabase();
-  const result=await loopActionService.recoverInvalidAddressFixture(identity,{subscriptionId:'42347174',requestKey:entry.requestKey,confirmWorkerStopped:true});
+  const recover=args.includes('--resolve-unchanged-address')?loopActionService.recoverUnchangedAddressFixture:loopActionService.recoverInvalidAddressFixture;
+  const result=await recover(identity,{subscriptionId:'42347174',requestKey:entry.requestKey,confirmWorkerStopped:true});
   if(result.operationState==='rejected'){entry.status='rejected';await save(state);}
   safePrint(result);return;
  }

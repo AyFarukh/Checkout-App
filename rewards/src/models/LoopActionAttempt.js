@@ -17,7 +17,9 @@ const schema=new mongoose.Schema({
   startedAt:{type:Date,default:Date.now},
   completedAt:{type:Date,default:null},
   verifiedAt:{type:Date,default:null},
-  errorCode:{type:String,default:null}
+  errorCode:{type:String,default:null},
+  providerHttpStatus:{type:Number,default:null},
+  providerFailureKind:{type:String,enum:['HTTP_ERROR','BUSINESS_REJECTION','UNEXPECTED_RESPONSE','TRANSPORT_OR_PRE_DISPATCH',null],default:null}
 },{timestamps:true});
 schema.index({shop:1,customerId:1,requestKey:1},{unique:true});
 // No TTL: deleting an ambiguous attempt could allow a duplicate charge.
