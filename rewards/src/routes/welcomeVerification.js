@@ -156,7 +156,7 @@ welcomeVerification.post("/subscriptions/action-execute", requireDatabase, async
       return res.status(400).json({ok:false,applied:false,code:"INVALID_DATE"});
     if (action==="delay" && ![7,14,30].includes(Number(payload.days)))
       return res.status(400).json({ok:false,applied:false,code:"INVALID_DELAY"});
-    if (["skip","order-now","frequency"].includes(action)) {
+    if (["skip","order-now","frequency","cancel"].includes(action)) {
       try {
         const prepared=prepareLoopAdminAction(action,subscriptionId,payload);
         operation={supported:true,method:prepared.method};
