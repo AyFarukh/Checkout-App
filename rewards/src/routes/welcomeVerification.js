@@ -115,6 +115,45 @@ welcomeVerification.post("/subscriptions/action-preview", requireDatabase, async
   }catch(error){console.error("[Subscription action preview]",error.message);return res.status(503).json({ok:false,message:"Unable to validate subscription ownership."});}
 });
 
+// Universal execution contract for subscription actions. It is deliberately
+// fail-closed: no mutation is sent to Loop without an independently verified
+// customer-bound write adapter, durable idempotency and per-action tests.
+welcomeVerification.post("/subscriptions/action-execute", requireDatabase, async (req,res) => {
+  res.set("Cache-Control","private, no-store");
+  if (!signed(req.query)) return res.status(403).json({ok:false,applied:false,code:"INVALID_SIGNATURE"});
+  const shop=String(req.query.shop||"").toLowerCase();
+  const customerId=String(req.query.logged_in_customer_id||"");
+  if (!/^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$/.test(shop)||!/^\\d+$/.test(customerId))
+    return res.status(401).json({ok:false,applied:false,code:"SIGN_IN_REQUIRED"});
+  if (!await ShopifyOfflineToken.exists({shop}))
+    return res.status(403).json({ok:false,applied:false,code:"STORE_NOT_AUTHORIZED"});
+  const allowedCustomer=String(process.env.LOOP_TEST_CUSTOMER_ID||"");
+  const allowedSubscription=String(process.env.LOOP_TEST_SUBSCRIPTION_ID||"");
+  const subscriptionId=String(req.body?.subscriptionId||"");
+  if (!allowedCustomer||!allowedSubscription||customerId!==allowedCustomer||subscriptionId!==allowedSubscription)
+    return res.status(403).json({ok:false,applied:false,code:"TEST_ONLY"});
+  const action=String(req.body?.action||"");
+  const actions=new Set(["skip","reschedule","delay","order-now","gift","frequency","pause","cancel","edit-products","edit-address","discount","order-note"]);
+  if (!actions.has(action)) return res.status(400).json({ok:false,applied:false,code:"UNSUPPORTED_ACTION"});
+  if (req.body?.confirm!==true) return res.status(400).json({ok:false,applied:false,code:"CONFIRMATION_REQUIRED"});
+  const payload=req.body?.payload;
+  if (!payload||typeof payload!=="object"||Array.isArray(payload)||JSON.stringify(payload).length>2000)
+    return res.status(400).json({ok:false,applied:false,code:"INVALID_PAYLOAD"});
+  try {
+    const subscriptions=await getCustomerLoopSubscriptions(customerId);
+    const sub=subscriptions.find(item=>String(item.id)===subscriptionId);
+    if (!sub) return res.status(403).json({ok:false,applied:false,code:"SUBSCRIPTION_NOT_OWNED"});
+    if (String(sub.status).toUpperCase()!=="ACTIVE" && !["order-note"].includes(action))
+      return res.status(409).json({ok:false,applied:false,code:"SUBSCRIPTION_NOT_ACTIVE"});
+    return res.status(200).json({ok:false,applied:false,action,code:"LOOP_ACTION_WRITE_NOT_READY",
+      message:"Your request was verified, but this action is not yet enabled. No changes were made."});
+  } catch(error) {
+    console.error("[Subscription action execute]",error.message);
+    return res.status(503).json({ok:false,applied:false,code:"SUBSCRIPTION_VERIFICATION_FAILED",
+      message:"Unable to verify subscription ownership. No changes were made."});
+  }
+});
+
 // Reschedule execution gate. Intentionally no Loop mutation until a verified
 // Loop write-auth integration and its integration tests are available.
 welcomeVerification.post("/subscriptions/reschedule", requireDatabase, async (req, res) => {
