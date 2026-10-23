@@ -151,7 +151,7 @@ welcomeVerification.post("/subscriptions/action-execute", requireDatabase, async
     if (action==="reschedule") {
       const proposed=String(payload.date||"");
       const midnight=Date.parse(proposed+"T00:00:00Z");
-      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(proposed)||
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(proposed)||
           !Number.isFinite(midnight)||
           new Date(midnight).toISOString().slice(0,10)!==proposed||
           midnight<Date.now()+86400000)
