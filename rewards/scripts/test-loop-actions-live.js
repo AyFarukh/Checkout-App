@@ -36,6 +36,18 @@ async function main(){
   console.log(JSON.stringify({subscriptionId:s.id,status:s.status,nextBillingDateEpoch:s.nextOrderDateEpoch??s.nextBillingDateEpoch,billingPolicy:s.billingPolicy,lineItems:(s.lineItems||s.lines||[]).map(l=>({id:l.id,variantShopifyId:l.variantShopifyId,quantity:l.quantity})),hasShippingAddress:Boolean(s.shippingAddress)},null,2));return;
  }
  const action=option('--action');if(!ACTIONS.includes(action))throw Object.assign(Error(),{code:'SELECT_ONE_ACTION_WITH_ACTION_FLAG'});
+ if(args.includes('--defer-discount-test')){
+  if(action!=='discount')throw Object.assign(Error(),{code:'INVALID_RECOVERY_ACTION'});
+  if(!args.includes('--confirm-worker-stopped')||!args.includes('--confirm-loop-rejected'))throw Object.assign(Error(),{code:'CONFIRM_DISCOUNT_REJECTION_REQUIRED'});
+  const url=new URL(process.env.MONGODB_URI);
+  if(process.env.NODE_ENV!=='test'||!['127.0.0.1','localhost'].includes(url.hostname))throw Object.assign(Error(),{code:'LOCAL_TEST_RECOVERY_ONLY'});
+  const state=JSON.parse(await readFile(stateFile,'utf8')),entry=state[action];
+  if(!entry)throw Object.assign(Error(),{code:'REQUEST_NOT_FOUND_IN_LOCAL_STATE'});
+  await connectDatabase();
+  const result=await loopActionService.deferDiscountTest(identity,{subscriptionId:'42347174',requestKey:entry.requestKey,confirmWorkerStopped:true,confirmLoopRejected:true});
+  if(result.operationState==='rejected'){entry.status='rejected';await save(state);}
+  safePrint(result);return;
+ }
  if(args.includes('--prepare-address-fixture')){
   if(action!=='edit-address'||process.env.NODE_ENV!=='test')throw Object.assign(Error(),{code:'LOCAL_ADDRESS_TEST_ONLY'});
   const subscriptions=await getCustomerLoopSubscriptions(identity.customerId);

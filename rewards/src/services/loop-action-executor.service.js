@@ -44,7 +44,7 @@ function storedResult(attempt,replayed=false) {
   return {ok:applied,applied,verified:applied,replayed,action:attempt.action,requestKey:attempt.requestKey,operationState:attempt.status,retrySafe:attempt.status==='rejected',
     ...(attempt.providerFailureKind?{providerHttpStatus:attempt.providerHttpStatus??null,providerFailureKind:attempt.providerFailureKind}:{}),
     code:applied?'ACTION_APPLIED':attempt.status==='rejected'?(attempt.errorCode||'LOOP_REJECTED'):'ACTION_OUTCOME_UNKNOWN',
-    message:applied?'Your change was verified with Loop.':addressResolved?'Address test attempt resolved after operator confirmation and an unchanged-address read. No provider rejection or successful address change is claimed.':attempt.status==='rejected'&&attempt.errorCode==='NO_CHANGE'?'Billing and delivery already matched the requested frequency before this attempt and still match. No frequency change is claimed.':attempt.status==='rejected'?'The request was rejected. No verified change was applied.':'The outcome is not confirmed. Do not submit a new request; check this request again.'};
+    message:applied?'Your change was verified with Loop.':attempt.status==='rejected'&&attempt.errorCode==='DISCOUNT_TEST_DEFERRED'?'Discount test deferred by the operator after confirming Loop rejection and unchanged discounts. This test has not passed.':addressResolved?'Address test attempt resolved after operator confirmation and an unchanged-address read. No provider rejection or successful address change is claimed.':attempt.status==='rejected'&&attempt.errorCode==='NO_CHANGE'?'Billing and delivery already matched the requested frequency before this attempt and still match. No frequency change is claimed.':attempt.status==='rejected'?'The request was rejected. No verified change was applied.':'The outcome is not confirmed. Do not submit a new request; check this request again.'};
 }
 export function createLoopActionService({installationExists=shop=>ShopifyOfflineToken.exists({shop}),verificationDelayMs=300}={}) {
   async function authorized(bound) {
@@ -223,6 +223,33 @@ export function createLoopActionService({installationExists=shop=>ShopifyOffline
   }
   const recoverInvalidAddressFixture=(identity,body)=>recoverAddressFixture(identity,body,true);
   const recoverUnchangedAddressFixture=(identity,body)=>recoverAddressFixture(identity,body,false);
-  return {preview,execute,status,catalog,recoverInvalidAddressFixture,recoverUnchangedAddressFixture};
+  // Explicit local operator resolution based on rejection observed in Loop's
+  // own UI. Never infer a definite rejection from HTTP 500 alone.
+  async function deferDiscountTest(identity,body) {
+    if(process.env.NODE_ENV!=='test')throw actionError('LOCAL_TEST_RECOVERY_ONLY',403);
+    if(body?.confirmWorkerStopped!==true||body?.confirmLoopRejected!==true)throw actionError('CONFIRM_DISCOUNT_REJECTION_REQUIRED');
+    const bound=scope(identity,body?.subscriptionId);
+    if(!keyPattern.test(body?.requestKey||''))throw actionError('INVALID_REQUEST_KEY');
+    await authorized(bound);
+    const attempt=await LoopActionAttempt.findOne({...bound,requestKey:body.requestKey}).select('+payload +context');
+    if(attempt?.action!=='discount')throw actionError('INVALID_RECOVERY_ACTION');
+    if(attempt.status==='rejected'&&attempt.errorCode==='DISCOUNT_TEST_DEFERRED')return storedResult(attempt,true);
+    if(attempt.status!=='unknown'||!attempt.completedAt||Date.now()-new Date(attempt.completedAt).getTime()<120000)
+      throw actionError('RECOVERY_NOT_READY',409);
+    if(attempt.providerHttpStatus!==500||attempt.providerFailureKind!=='HTTP_ERROR')throw actionError('DISCOUNT_FAILURE_EVIDENCE_REQUIRED');
+    const original=attempt.context?.before;
+    if(String(original?.id)!==bound.subscriptionId||!Array.isArray(original.discounts)||typeof attempt.payload?.value!=='string')
+      throw actionError('ORIGINAL_DISCOUNTS_UNAVAILABLE');
+    const {subscription:current}=await read(bound,'discount');
+    if(!Array.isArray(current.discounts))throw actionError('CURRENT_DISCOUNTS_UNAVAILABLE');
+    const containsCode=list=>list.some(x=>{const d=x?.node||x;return d&&[d.code,d.discountCode,d.redeemCode,d.title].some(v=>String(v||'').toUpperCase()===attempt.payload.value.toUpperCase());});
+    const discountSet=list=>canonical(list.map(canonical).sort());
+    if(containsCode(original.discounts)||containsCode(current.discounts)||discountSet(original.discounts)!==discountSet(current.discounts))
+      throw actionError('DISCOUNT_STATE_CHANGED',409);
+    const now=new Date();
+    const final=await LoopActionAttempt.findOneAndUpdate({_id:attempt._id,status:'unknown'},{$set:{status:'rejected',errorCode:'DISCOUNT_TEST_DEFERRED',completedAt:now,operatorResolution:{kind:'discount_test_deferred',confirmedWorkerStopped:true,confirmedLoopRejected:true,discountsUnchangedAt:now}},$unset:{lockKey:1}},{new:true});
+    return storedResult(final||await LoopActionAttempt.findById(attempt._id),true);
+  }
+  return {preview,execute,status,catalog,recoverInvalidAddressFixture,recoverUnchangedAddressFixture,deferDiscountTest};
 }
 export const loopActionService=createLoopActionService();

@@ -30,6 +30,30 @@ for(const [action,payload] of actionCases) test(`${action}: real HTTP adapter, M
 test('gift cannot claim success or send an unverified provider request',async()=>{
  await assert.rejects(service.preview(identity,request('gift',{})),e=>e.code==='GIFT_API_UNAVAILABLE');assert.equal(provider.writes.length,0);
 });
+for(const scenario of ['unchanged','changed','code-present','active-worker','recent','no-provider-evidence'])test(`operator discount test deferral: ${scenario}`,async()=>{
+ const b=request('discount',{value:'SUBTESTING1'}),original=structuredClone(provider.subscription);
+ await LoopActionAttempt.create({...identity,subscriptionId:b.subscriptionId,action:b.action,payload:b.payload,requestKey:b.requestKey,requestHash:'discount-test-deferral',status:scenario==='active-worker'?'in_flight':'unknown',completedAt:new Date(Date.now()-(scenario==='recent'?0:180000)),providerHttpStatus:scenario==='no-provider-evidence'?null:500,providerFailureKind:scenario==='no-provider-evidence'?null:'HTTP_ERROR',lockKey:`${identity.shop}:${b.subscriptionId}`,context:{before:original,plan:{}}});
+ if(scenario==='changed')provider.subscription.discounts.push({title:'another discount',isActive:true});
+ if(scenario==='code-present')provider.subscription.discounts.push({title:'SUBTESTING1',isActive:true});
+ const body={subscriptionId:b.subscriptionId,requestKey:b.requestKey,confirmWorkerStopped:true,confirmLoopRejected:true};
+ if(scenario==='unchanged'){
+  for(const flag of ['confirmWorkerStopped','confirmLoopRejected'])await assert.rejects(service.deferDiscountTest(identity,{...body,[flag]:false}));
+  process.env.NODE_ENV='production';
+  try{await assert.rejects(service.deferDiscountTest(identity,body),e=>e.code==='LOCAL_TEST_RECOVERY_ONLY');}finally{process.env.NODE_ENV='test';}
+  const result=await service.deferDiscountTest(identity,body);
+  assert.equal(result.code,'DISCOUNT_TEST_DEFERRED');assert.equal(result.applied,false);assert.equal(result.verified,false);
+  assert.equal((await service.deferDiscountTest(identity,body)).code,'DISCOUNT_TEST_DEFERRED');
+  const saved=await LoopActionAttempt.findOne({requestKey:b.requestKey}).select('+operatorResolution');
+  assert.equal(saved.operatorResolution.confirmedLoopRejected,true);assert.equal(saved.providerHttpStatus,500);
+  const cancel=request('cancel',{confirmCancellation:true},'cancel-after-deferral-1234'),preview=await service.preview(identity,cancel);
+  assert.equal((await service.execute(identity,{...cancel,previewToken:preview.previewToken})).verified,true);
+  assert.equal(provider.writes.length,1);assert.ok(provider.writes[0].path.endsWith('/cancel'));
+ }else{
+  await assert.rejects(service.deferDiscountTest(identity,body));assert.equal(provider.writes.length,0);
+ }
+ const saved=await LoopActionAttempt.findOne({requestKey:b.requestKey});
+ assert.equal(Boolean(saved.lockKey),scenario!=='unchanged');
+});
 for(const financialStatus of ['paid','pending','refunded'])test(`existing unknown order-now reconciles Admin ${financialStatus} history without redispatch`,async()=>{
  const b=request('order-now',{preponeFutureOrder:true});
  provider.history=[{id:451548046,shopifyId:12721784717684,status:'PROCESSED',financialStatus}];

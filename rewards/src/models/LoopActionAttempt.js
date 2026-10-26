@@ -19,6 +19,7 @@ const schema=new mongoose.Schema({
   verifiedAt:{type:Date,default:null},
   errorCode:{type:String,default:null},
   providerHttpStatus:{type:Number,default:null},
+  operatorResolution:{type:mongoose.Schema.Types.Mixed,select:false},
   providerFailureKind:{type:String,enum:['HTTP_ERROR','BUSINESS_REJECTION','UNEXPECTED_RESPONSE','TRANSPORT_OR_PRE_DISPATCH',null],default:null}
 },{timestamps:true});
 schema.index({shop:1,customerId:1,requestKey:1},{unique:true});

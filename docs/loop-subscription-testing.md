@@ -156,7 +156,7 @@ On that development theme, perform every supported action through Review change 
 ## Verification performed on 2026-10-23
 
 - `npm test`: 69 passed, 2 existing rewards webhook tests skipped without `MONGODB_URI`, zero failures.
-- Subscription integration: 55 passed, zero skipped or failures, using real Mongo and the local HTTP provider.
+- Subscription integration: 61 passed, zero skipped or failures, using real Mongo and the local HTTP provider.
 - Browser E2E: 33 passed, including the full stack and mobile form. This environment used a locally available Chromium headless shell with the documented single-process CI workaround.
 - No real Loop mutations, real Shopify sessions, production deployments or PR merges were performed.
 
@@ -223,6 +223,20 @@ New provider failures retain only the HTTP status and a coarse allowlisted failu
 The observed Admin history returns `status: "PROCESSED"` and `financialStatus: "paid"` for a completed order. Order-now verification now recognizes that shape and requires one unambiguous newly paid order, absent from the saved pre-dispatch history, with valid Loop and Shopify order IDs. Older `SUCCESS` records remain supported only when they do not explicitly contradict successful payment. Pending, refunded, failed, missing-ID and ambiguous multiple-new-order results are not accepted. The shared HTTP fixture uses the observed Admin shape in integration and browser tests.
 
 For an existing unknown order-now request, pull this fix and run only `npm run test:subscriptions:live -- --action order-now --status`. It rechecks history and can resolve the original paid order without placing another order. Keep the same request key, state file and ledger. Do not use `--new`, manual Place order, or an operator address recovery to bypass an uncertain charge.
+
+## Explicit discount test deferral
+
+A pending discount test is not automatically unlocked by an HTTP 500. When Loop's own admin has explicitly rejected the same code, the operator can defer this test while preserving its failure and request history:
+
+```bash
+npm run test:subscriptions:live -- --action discount --defer-discount-test --confirm-worker-stopped --confirm-loop-rejected
+```
+
+Use this only after the old CLI has exited, no other worker can dispatch, and Loop's UI rejection has been observed. The command is restricted to NODE_ENV=test, the dedicated local database, configured customer/shop and subscription 42347174. It requires an unknown, completed attempt at least two minutes old, a recorded HTTP 500 failure, a fresh unchanged discount set, and absence of the requested code in both the saved baseline and the current read. Active/recent attempts, changed discounts or an applied code retain their lock.
+
+The local record becomes rejected with `DISCOUNT_TEST_DEFERRED`, keeps its provider diagnostics and receives an operator-resolution audit record. The CLI synchronizes its private state file. No Loop mutation is sent, no successful discount application is claimed, and the discount test remains pending. After deferral, refresh the cancellation preview before executing it. Tests verify rejection guards, zero discount writes and a subsequent independently verified cancellation through the normal executor.
+
+Gift documentation was rechecked on 2026-10-26. Published gift-subscription APIs exist, but those differ from gifting the upcoming order of this normal subscription. A verified supported contract for the requested gift-instead-of-skip action is still required; do not substitute the gift-subscription APIs or fabricate an address/order sequence.
 
 ## Current release status
 
