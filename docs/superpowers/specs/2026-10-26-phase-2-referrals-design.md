@@ -1,13 +1,46 @@
 # Phase 2: Referrals — draft for policy selection
 
-Status: discovery complete; reward policy pending. No referral awards activated.
+Status: configuration implementation in progress. First referral earns 200 points
+total. Product selection and additional milestones are configurable in admin;
+products may be mapped later. No referral awards activated.
+
+## User-supplied referral flow
+
+Reference: referral screen supplied on 2026-10-26. Use its warm white background,
+brown offer card, green actions, rounded white cards and cream share controls
+within the existing storefront rewards surface. The Shopify customer account
+extension should expose the same flow using its supported native components.
+
+- Offer: “Give $10, Get 200 pts”. Friend receives $10 off their first order;
+  referrer earns 200 points when that friend buys.
+- Unique referral link and code, a copy action, and Text / Email / More sharing.
+  Sharing opens user-controlled compose/share actions; it does not send messages
+  from the backend. The sample name/code and 3/5 progress are illustrative, not
+  hardcoded customer data.
+- Real referral progress and the next reward, with locked/unlocked milestone rows:
+  1 referral — 200 bonus points; 3 — Free Shampoo Bar; 5 — Free Full-Size Mist;
+  10 — Free Four Mist Bundle.
+- Main “Invite friends now” action opens the available share flow.
+
+The user confirmed the first-referral row represents the same 200-point
+per-referral award, not an additional bonus. The user requested product selection
+in admin and controls to add more milestones; they will map products later. Do not infer inventory from display names or issue a generic unrestricted
+100% discount. Existing point-cost redemptions require at least one point, so free
+milestone entitlements need their own claim path rather than fake point balances.
+
+Proposed qualification: immediate on a verified first paid order, reflecting
+“when they buy”; the original question about any holding period remains open.
+Award each milestone once per referrer per store, backed by a unique entitlement,
+and derive progress from qualified referrals. Refund settlement, minimum qualifying
+spend, stacking, and expired/claimed milestone behavior need explicit policy before
+launch. Native implementation remains recommended; no external provider is needed.
 
 The existing program has an inactive `REFERRAL` earning rule with a placeholder
 500-point value. `ensureDefaultRewardsProgram` explicitly disables unsupported
 rules, including referrals, and no referral attribution or qualification model
 exists. The placeholder is not an approved business policy. The earlier chat
-names referrals, additional earning methods and Loop rewards but supplies no
-amounts, eligibility details, integration provider, or settlement policy.
+names referrals, additional earning methods and Loop rewards. The new visual
+reference establishes the $10 / 200-point offer and milestone rewards above.
 
 ## Proposed first delivery
 
@@ -22,8 +55,8 @@ this is the implementer's recommendation, not an already approved provider choic
 
 ## Required business decisions
 
-- Friend benefit: points or checkout discount, amount, minimum purchase, exclusions.
-- Referrer benefit: points/amount, qualifying first order, and any holding period.
+- Friend benefit is $10 off the first order; minimum purchase and exclusions remain open.
+- Referrer benefit is 200 points per successful referral; first-order qualification and any holding period remain open.
 - Refund handling: proportional reversal or cancellation of the referral award;
   define what happens if the referrer has already spent the points.
 - Attribution window and whether a friend with any previous order is excluded.

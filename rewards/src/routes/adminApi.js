@@ -17,8 +17,11 @@ import { enqueueRewardSync, retryRewardSync } from "../services/shopify-sync.ser
 import { retryDeadWebhook } from "../services/dead-webhook-admin.service.js";
 import { ADMIN_ERROR_CODES, apiError } from "../errors/api-error.js";
 
+import { referralAdmin } from "./referralAdmin.js";
+
 export const adminApi = Router();
 adminApi.use(adminAuth);
+adminApi.use("/referrals", referralAdmin);
 
 function shopFrom(req) { const shop = String(req.shopifySession?.shop || "").trim().toLowerCase(); if (!shop) throw apiError(401, ADMIN_ERROR_CODES.UNAUTHENTICATED, "Unable to resolve authenticated Shopify shop."); return shop; }
 function editable(body, fields) { return Object.fromEntries(fields.filter((key) => body[key] !== undefined).map((key) => [key, body[key]])); }
