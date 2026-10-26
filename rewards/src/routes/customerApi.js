@@ -7,9 +7,11 @@ import { Reward } from "../models/Reward.js";
 import { EarningRule } from "../models/EarningRule.js";
 import { Redemption } from "../models/Redemption.js";
 import { reserveRedemption, releaseRedemption } from "../services/redemption.service.js";
+import { referralCustomer } from "./referralCustomer.js";
 
 export const customerApi = Router();
 customerApi.use(customerAuth);
+customerApi.use("/referrals", referralCustomer);
 
 function context(req) { return req.customerSession; }
 function safeRedemption(value) { const item = value?.toObject ? value.toObject() : { ...value }; delete item.tokenHash; return item; }

@@ -4,6 +4,9 @@ import { PointsTransaction } from "../models/PointsTransaction.js";
 import { awardForAction, reverseForRefund } from "./rules.service.js";
 import { commitRedemptionFromPaidOrder, refundRedemption } from "./redemption.service.js";
 import { shopifyAdminGraphql } from "./shopify-admin.service.js";
+import { reconcileReferralOrder } from "./referral-live.service.js";
+import { ReferralClaim } from "../models/ReferralClaim.js";
+import { ReferralEntitlement } from "../models/ReferralEntitlement.js";
 
 const MAX_ATTEMPTS = Number(process.env.REWARDS_WEBHOOK_MAX_ATTEMPTS || 8);
 const LOCK_MS = Number(process.env.REWARDS_WEBHOOK_LOCK_MS || 5 * 60_000);
@@ -58,27 +61,37 @@ async function processPayload(event) {
       awardForAction({ shop:event.shop,type:"PURCHASE",customer:body.customer,eventId:body.id,amount:eligibleAmount,source:"SHOPIFY_ORDER_PAID",shopifyOrderId:String(body.id),metadata:{orderName:body.name,eligibleAmount,currency:body.currency,productIds,collectionIds:[],customerOrdersCount:body.customer?.orders_count} }),
       commitRedemptionFromPaidOrder({ shop:event.shop,shopifyOrderId:String(body.id),shopifyCustomerId:customerId,discountCodes }),
     ]);
+    const referral = discountCodes.some(code => /^FTR-(FRIEND|GIFT)-/.test(code))
+      ? await reconcileReferralOrder({ shop: event.shop, orderId: String(body.id) }) : null;
     console.log(`[Rewards Webhook] order ${body.id} paid; customer=${customerId||"none"}; rewardCodes=${discountCodes.filter(code=>code.startsWith("FTR-")).join(",")||"none"}; redemption=${redemption?.publicReference||"none"}`);
-    return { earning, redemption };
+    return { earning, redemption, referral };
   }
   if (event.topic === "customers/create") return awardForAction({shop:event.shop,type:"ACCOUNT_CREATE",customer:body,eventId:body.id,source:"SHOPIFY_CUSTOMER_CREATED"});
+  if (event.topic === "orders/cancelled") {
+    const relevant = await ReferralClaim.exists({ shop: event.shop }) || await ReferralEntitlement.exists({ shop: event.shop });
+    return relevant ? reconcileReferralOrder({ shop: event.shop, orderId: String(body.id) }) : { skipped: true };
+  }
   if (event.topic === "refunds/create") {
     const orderId=String(body.order_id||"").trim();
     const refundId=String(body.id||"").trim();
     if(!orderId||!refundId)throw Object.assign(new Error("Refund webhook is missing order_id or id"),{permanent:true,code:"REFUND_IDENTITY_MISSING"});
+    // Verify cumulative Shopify money independently of webhook arrival order or
+    // transaction-array redactions. Purchase/redeem settlement remains unchanged.
+    const hasReferrals = await ReferralClaim.exists({ shop: event.shop }) || await ReferralEntitlement.exists({ shop: event.shop });
+    const referral = hasReferrals ? await reconcileReferralOrder({ shop: event.shop, orderId }) : null;
     const refundedAmount=successfulRefundAmount(body);
     const originalAmount=await originalEligibleAmount(event.shop,orderId);
     const ratio=originalAmount>0?Math.min(1,refundedAmount/originalAmount):(refundedAmount>0?1:0);
     if(refundedAmount<=0){
       console.log(`[Rewards Webhook] refund ${refundId} for order ${orderId} has no successful refund transaction; no points changed`);
-      return {earning:{skipped:true,reason:"No successful refund transaction"},redemption:{refunded:0}};
+      return {earning:{skipped:true,reason:"No successful refund transaction"},redemption:{refunded:0},referral};
     }
     const [earning,redemption]=await Promise.all([
       reverseForRefund({shop:event.shop,orderId,refundId,refundedAmount}),
       refundRedemption({shop:event.shop,shopifyOrderId:orderId,refundId,ratio}),
     ]);
     console.log(`[Rewards Webhook] refund ${refundId} processed for order ${orderId}; amount=${refundedAmount}; original=${originalAmount||"unknown"}; ratio=${ratio.toFixed(4)}; rewardPointsRestored=${redemption?.refunded||0}`);
-    return {earning,redemption};
+    return {earning,redemption,referral};
   }
   const error=new Error(`Unsupported webhook topic: ${event.topic}`);error.permanent=true;throw error;
 }

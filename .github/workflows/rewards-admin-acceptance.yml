@@ -149,7 +149,7 @@ jobs:
         run: npm run test:admin-acceptance 2>&1 | tee test-results/admin-acceptance.log
       - name: Verify token lifecycle and referral configuration
         working-directory: rewards
-        run: node --test --test-concurrency=1 test/token-lifecycle.acceptance.test.js test/uninstall-webhook.acceptance.test.js test/referral-program.acceptance.test.js
+        run: node --test --test-concurrency=1 test/token-lifecycle.acceptance.test.js test/uninstall-webhook.acceptance.test.js test/referral-program.acceptance.test.js test/referral-http.acceptance.test.js test/referral-live.acceptance.test.js test/referral-maintenance.acceptance.test.js
       - name: Enforce FTR-ADM-WH-011 concurrency result
         if: always()
         run: |

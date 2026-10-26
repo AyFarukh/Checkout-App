@@ -20,6 +20,7 @@ import { releaseExpiredRedemptions } from "./services/redemption.service.js";
 import { processWebhookJobs } from "./services/webhook-worker.service.js";
 import { processCustomerRewardsMirrorRetries } from "./services/shopify-customer-rewards-mirror.service.js";
 import { errorHandler, requestId } from "./middleware/errorHandler.js";
+import { processReferralMaintenance } from "./services/referral-live.service.js";
 const __filename = fileURLToPath(import.meta.url),
   __dirname = path.dirname(__filename),
   publicDir = path.resolve(__dirname, "../public"),
@@ -144,6 +145,7 @@ setInterval(async () => {
 
   try {
     await processWebhookJobs();
+    await processReferralMaintenance();
     await processRewardSyncJobs();
     await releaseExpiredRedemptions();
     await processCustomerRewardsMirrorRetries();

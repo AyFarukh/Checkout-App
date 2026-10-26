@@ -33,7 +33,8 @@ async function adminGraphql(shop,query,variables={},apiVersion=API_VERSION){
     response=await fetch(`https://${domain}/admin/api/${apiVersion}/graphql.json`,{
       method:"POST",
       headers:{"Content-Type":"application/json","X-Shopify-Access-Token":token},
-      body:JSON.stringify({query,variables})
+      body:JSON.stringify({query,variables}),
+      signal:AbortSignal.timeout(15000)
     });
   }catch(error){
     throw Object.assign(new Error(`Shopify Admin API network failure: ${error.message}`),{code:"SHOPIFY_NETWORK_ERROR",retryable:true});

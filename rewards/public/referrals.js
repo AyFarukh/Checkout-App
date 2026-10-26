@@ -3,11 +3,11 @@
   if (!root) return;
   let program, dirty = false, saving = false, loading = false, loaded = false, previewCount = 0;
   const esc = value => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
-  const api = async (method = "GET", body) => {
-    const response = await fetch("/api/admin/referrals", { method, headers: { "Content-Type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  const api = async (method = "GET", body, suffix = "") => {
+    const response = await fetch("/api/admin/referrals" + suffix, { method, headers: { "Content-Type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
     const data = await response.json();
     if (!response.ok) throw new Error(data?.error?.message || "Unable to save referral settings.");
-    return data.program;
+    return { ...data.program, _serverReady: Boolean(data.serverReady) };
   };
   function status(message, error = false) {
     const node = root.querySelector("#referralStatus");
@@ -18,7 +18,9 @@
     root.innerHTML = `<div class="referral-admin-layout">
       <form id="referralForm" class="card form-stack">
         <p class="eyebrow">Invite friends</p><h2>Referral program</h2>
-        <p class="referral-draft">Draft configuration — referral tracking and reward issuance are not enabled yet.</p>
+        <p class="referral-draft">${program.liveEnabled ? "Referral program active. Existing claims retain their original offer." : "Referral program paused. Save settings, publish the Shopify Function, then enable referrals."}</p>
+        <button type="button" class="secondary" id="toggleReferralActivation" ${!program.liveEnabled && !program._serverReady ? "disabled" : ""}>${program.liveEnabled ? "Pause referrals" : "Enable referrals"}</button>
+        ${!program._serverReady ? '<p class="muted">Server readiness is off. Publish the referral-aware Function and configure REFERRALS_FUNCTION_V2_READY before enabling.</p>' : ""}
         <div class="two-col"><label>Friend discount (store currency)<input name="friendDiscountAmount" type="number" min="0.01" max="10000" step="0.01" value="${program.friendDiscountAmount}" required></label>
         <label>Points per successful referral<input name="referrerPoints" type="number" min="1" max="100000" step="1" value="${program.referrerPoints}" required></label></div>
         <div class="two-col"><label>Minimum qualifying order<input name="minimumOrderAmount" type="number" min="0" max="10000" step="0.01" value="${program.minimumOrderAmount}" required></label>
@@ -26,7 +28,7 @@
         <h3>Referral milestones</h3><p class="muted">Products can be selected later. Use a bundle product for a bundle gift. Milestones display in referral-count order.</p>
         <div id="referralMilestones">${program.milestones.map(row).join("")}</div>
         <div class="referral-actions"><button type="button" class="secondary" data-add="PRODUCT">Add product milestone</button><button type="button" class="secondary" data-add="POINTS">Add bonus-points milestone</button></div>
-        <div class="referral-actions"><button type="submit" id="saveReferrals">Save draft</button><button type="button" class="secondary" id="reloadReferrals">Reload saved settings</button></div>
+        <div class="referral-actions"><button type="submit" id="saveReferrals">Save settings</button><button type="button" class="secondary" id="reloadReferrals">Reload saved settings</button></div>
         <p id="referralStatus" class="status" role="status" aria-live="polite">${dirty ? "Unsaved changes" : "Draft loaded"}</p>
       </form>
       <aside class="referral-preview-panel"><label>Preview successful referrals<input id="referralPreviewCount" type="number" min="0" max="100000" value="${previewCount}"></label><div id="referralPreview"></div></aside>
@@ -55,7 +57,7 @@
     const discount = Number(program.friendDiscountAmount).toLocaleString(undefined, { maximumFractionDigits: 2 });
     target.innerHTML = `<div class="referral-preview"><p class="referral-eyebrow">INVITE FRIENDS</p><h2>Refer &amp; Earn</h2>
       <section class="referral-offer"><span class="referral-offer-icon" aria-hidden="true">♧</span><h2>Give ${esc(discount)} off, Get ${esc(program.referrerPoints)} pts</h2><p>Share FreeTheRoots with friends. They get ${esc(discount)} off their first order, you earn ${esc(program.referrerPoints)} points when they buy.</p><small>Discount amounts are in your store currency.</small></section>
-      <section class="referral-preview-card"><p class="referral-eyebrow">YOUR UNIQUE LINK</p><p class="muted">A personal link and code will appear here when referral tracking is enabled.</p><div class="referral-share"><span>Text</span><span>Email</span><span>More</span></div></section>
+      <section class="referral-preview-card"><p class="referral-eyebrow">YOUR UNIQUE LINK</p><p class="muted">Customers receive a personal referral link in their rewards account when the program is active.</p><div class="referral-share"><span>Text</span><span>Email</span><span>More</span></div></section>
       <section class="referral-preview-card"><div class="referral-progress-title"><h3>Referral progress</h3><strong>${esc(previewCount)}/${esc(max)}</strong></div>
       <progress max="${esc(max)}" value="${esc(Math.min(previewCount, max))}" aria-label="Referral progress"></progress>
       <p>${next ? `${esc(next.threshold - previewCount)} more friends to unlock ${esc(next.title)}.` : "All configured milestones unlocked."}</p>
@@ -85,6 +87,15 @@
   root.addEventListener("click", async event => {
     const button = event.target.closest("button");
     if (!button || saving || loading) return;
+    if (button.id === "toggleReferralActivation") {
+      if (dirty) { status("Save or reload your changes before changing activation.", true); return; }
+      if (!window.confirm(program.liveEnabled ? "Pause new referrals and gift claims? Existing order settlement will continue." : "Enable the referral program for this store? Confirm the current Shopify Function has been published.")) return;
+      saving = true; root.inert = true;
+      try { program = await api("POST", { enabled: !program.liveEnabled, revision: program.revision, confirm: true }, "/activation"); render(); status(program.liveEnabled ? "Referrals enabled." : "Referrals paused."); }
+      catch (error) { status(error.message, true); }
+      finally { saving = false; root.inert = false; }
+      return;
+    }
     if (button.id === "reloadReferrals") {
       if (dirty && !window.confirm("Discard unsaved referral settings?")) return;
       await load(true); return;
@@ -120,7 +131,7 @@
     // Prevent edits during save from being overwritten by the response.
     root.querySelector("#referralForm").inert = true;
     try {
-      program = await api("PUT", program); dirty = false; render(); status("Referral draft saved. You can select or change gifts later.");
+      program = await api("PUT", program); dirty = false; render(); status("Referral settings saved.");
     } catch (error) { status(error.message, true); }
     finally { saving = false; root.querySelector("#referralForm").inert = false; }
   });

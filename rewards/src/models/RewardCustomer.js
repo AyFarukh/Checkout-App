@@ -4,6 +4,7 @@ const rewardCustomerSchema = new mongoose.Schema({
   shopifyCustomerId: { type: String, required: true, trim: true },
   email: { type: String, trim: true, lowercase: true }, firstName: { type: String, trim: true }, lastName: { type: String, trim: true },
   pointsBalance: { type: Number, default: 0, min: 0 },
+  referralDebt: { type: Number, default: 0, min: 0 }, referralVersion: { type: Number, default: 0 },
   pointsReserved: { type: Number, default: 0, min: 0 },
   lifetimeEarned: { type: Number, default: 0, min: 0 }, lifetimeRedeemed: { type: Number, default: 0, min: 0 }, lifetimeExpired: { type: Number, default: 0, min: 0 },
   tier: { type: String, default: "ROOT_MEMBER", trim: true },

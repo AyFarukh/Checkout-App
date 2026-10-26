@@ -5,8 +5,10 @@ import { ShopifyOfflineToken } from "../models/ShopifyOfflineToken.js";
 import { shopifyAdminGraphql } from "../services/shopify-admin.service.js";
 import { getCustomerLoopSubscriptions } from "../services/loop-subscriptions.service.js";
 import { enrichSubscriptionImages } from "../services/subscription-images.service.js";
+import { referralProxy } from "./referralCustomer.js";
 
 export const welcomeVerification = Router();
+welcomeVerification.use("/referrals", requireDatabase, referralProxy(signed));
 const attempts = new Map();
 export function signed(query) {
   const secret = process.env.SHOPIFY_API_SECRET || process.env.SHOPIFY_API_SECRET_KEY;

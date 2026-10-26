@@ -8,6 +8,7 @@ const TOPICS = new Map([
   ["/orders-paid", "orders/paid"],
   ["/refunds-create", "refunds/create"],
   ["/customers-create", "customers/create"],
+  ["/orders-cancelled", "orders/cancelled"],
 ]);
 
 function verifyWebhook(req) {
@@ -42,7 +43,7 @@ webhookRouter.post("/app-uninstalled", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-webhookRouter.post(["/orders-paid", "/refunds-create", "/customers-create"], async (req, res, next) => {
+webhookRouter.post(["/orders-paid", "/refunds-create", "/customers-create", "/orders-cancelled"], async (req, res, next) => {
   try {
     const shop = String(req.get("X-Shopify-Shop-Domain") || "").trim().toLowerCase();
     const webhookId = String(req.get("X-Shopify-Webhook-Id") || "").trim();

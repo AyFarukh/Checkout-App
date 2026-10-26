@@ -1,11 +1,18 @@
 query RewardsCartInput {
+  presentmentCurrencyRate
   cart {
+    buyerIdentity {
+      isAuthenticated
+      customer { id numberOfOrders }
+    }
     cost {
       subtotalAmount { amount }
     }
     lines {
       id
+      quantity
       merchandise {
+        __typename
         ... on ProductVariant {
           id
           product { id }

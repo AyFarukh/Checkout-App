@@ -1,8 +1,9 @@
 # Phase 2: Referrals — draft for policy selection
 
-Status: configuration implementation in progress. First referral earns 200 points
-total. Product selection and additional milestones are configurable in admin;
-products may be mapped later. No referral awards activated.
+Status: live implementation prepared, activation remains off. First referral earns
+200 points total. Configuration and selected product mappings are preserved.
+Implementation policies, rollout order and test checklist: rewards/REFERRALS.md.
+No deployment or merge performed.
 
 ## User-supplied referral flow
 

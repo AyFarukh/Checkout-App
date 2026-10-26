@@ -10,6 +10,7 @@ const milestone = new mongoose.Schema({
 const schema = new mongoose.Schema({
   shop: { type: String, required: true, unique: true },
   revision: { type: Number, required: true, default: 0 },
+  liveEnabled: { type: Boolean, default: false },
   friendDiscountAmount: { type: Number, required: true, default: 10 },
   referrerPoints: { type: Number, required: true, default: 200 },
   minimumOrderAmount: { type: Number, default: 0 },
