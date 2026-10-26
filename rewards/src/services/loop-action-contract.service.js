@@ -163,6 +163,18 @@ export function verifyAction(action,p,before,after,plan) {
   if(action==='order-note') return subscriptionNote(s)===p.value;
   if(action==='discount') return (s.discounts||[]).some(x=>{const d=x.node||x;return !d.rejectionReason && String(d.code||d.discountCode||d.title||'').toUpperCase()===p.value.toUpperCase();});
   if(action==='skip') return Boolean(plan.scheduleId) && nextEpoch(s)>nextEpoch(before) && (after.schedule||[]).some(o=>String(o.id)===plan.scheduleId&&o.status==='SKIPPED');
-  if(action==='order-now') return Array.isArray(plan.historyIds) && (after.history||[]).some(o=>!plan.historyIds.includes(String(o.id))&&o.status==='SUCCESS'&&o.shopifyId);
+  if(action==='order-now') {
+    if(!Array.isArray(plan.historyIds)||!Array.isArray(after.history))return false;
+    const previous=new Set(plan.historyIds.map(String));
+    const validId=value=>id(String(value))&&(typeof value!=='number'||Number.isSafeInteger(value));
+    const paidOrders=after.history.filter(o=>{
+      if(!o||!validId(o.id)||!validId(o.shopifyId)||previous.has(String(o.id)))return false;
+      const paid=typeof o.financialStatus==='string'&&o.financialStatus.trim().toLowerCase()==='paid';
+      // Admin history reports PROCESSED + paid. Older webhook-shaped history
+      // uses SUCCESS; explicit payment failures must override that label.
+      return o.status==='PROCESSED'?paid:o.status==='SUCCESS'&&(!Object.hasOwn(o,'financialStatus')||paid);
+    });
+    return paidOrders.length===1;
+  }
   return false;
 }

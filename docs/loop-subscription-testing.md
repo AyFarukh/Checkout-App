@@ -155,8 +155,8 @@ On that development theme, perform every supported action through Review change 
 
 ## Verification performed on 2026-10-23
 
-- `npm test`: 66 passed, 2 existing rewards webhook tests skipped without `MONGODB_URI`, zero failures.
-- Subscription integration: 52 passed, zero skipped or failures, using real Mongo and the local HTTP provider.
+- `npm test`: 69 passed, 2 existing rewards webhook tests skipped without `MONGODB_URI`, zero failures.
+- Subscription integration: 55 passed, zero skipped or failures, using real Mongo and the local HTTP provider.
 - Browser E2E: 33 passed, including the full stack and mobile form. This environment used a locally available Chromium headless shell with the documented single-process CI workaround.
 - No real Loop mutations, real Shopify sessions, production deployments or PR merges were performed.
 
@@ -217,6 +217,12 @@ npm run test:subscriptions:live -- --action edit-address --resolve-unchanged-add
 First ensure the old CLI has exited and no other test worker can dispatch. The same local-only, ownership, two-minute age, unknown-state and complete address comparison guards apply. A changed address or active worker keeps its lock. Resolution preserves the attempt as rejected with `UNCHANGED_ADDRESS_RECONCILED` and updates the local state file; it does not assert provider rejection or successful application. It is never automatic and cannot be invoked through the dashboard. Only afterward prepare the correct fixture and create a new preview.
 
 New provider failures retain only the HTTP status and a coarse allowlisted failure category (`HTTP_ERROR`, `BUSINESS_REJECTION`, `UNEXPECTED_RESPONSE`, or `TRANSPORT_OR_PRE_DISPATCH`). These appear on live execute/status results; provider bodies, headers and error messages remain excluded. Older attempts cannot retroactively recover discarded HTTP diagnostics.
+
+## Admin order-now history verification
+
+The observed Admin history returns `status: "PROCESSED"` and `financialStatus: "paid"` for a completed order. Order-now verification now recognizes that shape and requires one unambiguous newly paid order, absent from the saved pre-dispatch history, with valid Loop and Shopify order IDs. Older `SUCCESS` records remain supported only when they do not explicitly contradict successful payment. Pending, refunded, failed, missing-ID and ambiguous multiple-new-order results are not accepted. The shared HTTP fixture uses the observed Admin shape in integration and browser tests.
+
+For an existing unknown order-now request, pull this fix and run only `npm run test:subscriptions:live -- --action order-now --status`. It rechecks history and can resolve the original paid order without placing another order. Keep the same request key, state file and ledger. Do not use `--new`, manual Place order, or an operator address recovery to bypass an uncertain charge.
 
 ## Current release status
 

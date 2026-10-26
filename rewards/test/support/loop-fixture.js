@@ -25,7 +25,7 @@ export async function startLoopFixture() {
     const s=fixture.subscription;
     if(path.endsWith('/skipNext')){s.nextBillingDateEpoch+=30*86400;fixture.schedule[0].status='SKIPPED';}
     else if(path.endsWith('/reschedule'))s.nextBillingDateEpoch=b.newBillingDateEpoch;
-    else if(path.endsWith('/placeOrder'))fixture.history.push({id:99,shopifyId:100,status:'SUCCESS'});
+    else if(path.endsWith('/placeOrder'))fixture.history.push({id:99,shopifyId:100,status:'PROCESSED',financialStatus:'paid'});
     else if(path.endsWith('/frequency')){s.billingPolicy=b.billingPolicy;s.deliveryPolicy=b.deliveryPolicy;}
     else if(path.endsWith('/pause'))s.status='PAUSED';
     else if(path.endsWith('/cancel'))s.status='CANCELLED';

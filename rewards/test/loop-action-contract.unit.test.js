@@ -26,6 +26,21 @@ for(const [action,payload,method,path] of cases) test(`${action}: validates inpu
  assert.equal(verifyAction(action,normalized,before,{subscription:before,history:[],schedule:[]},plan),false,'unchanged state is not proof');
 });
 test('gift is explicitly blocked without an invented endpoint',()=>assert.throws(()=>normalizeAction('gift',{}),e=>e.code==='GIFT_API_UNAVAILABLE'));
+test('order-now verifies the live Admin PROCESSED paid order shape',()=>{
+ const order={id:451548046,shopifyId:12721784717684,status:'PROCESSED',financialStatus:'paid'};
+ const check=o=>verifyAction('order-now',{},before,{subscription:before,history:[o]},{historyIds:['1']});
+ assert.equal(check(order),true);assert.equal(check({...order,financialStatus:'PAID'}),true);
+});
+test('order-now rejects unpaid, failed, old and unidentified orders',()=>{
+ const order={id:451548046,shopifyId:12721784717684,status:'PROCESSED',financialStatus:'paid'};
+ for(const changed of [{financialStatus:'pending'},{financialStatus:'refunded'},{financialStatus:null},{status:'UNPROCESSED'},{status:'FAILED'},{id:'1'},{id:null},{shopifyId:null},{shopifyId:0},{shopifyId:'not-an-id'}])
+  assert.equal(verifyAction('order-now',{},before,{subscription:before,history:[{...order,...changed}]},{historyIds:['1']}),false);
+ assert.equal(verifyAction('order-now',{},before,{subscription:before,history:[{...order,status:'SUCCESS',financialStatus:'refunded'}]},{historyIds:[]}),false);
+});
+test('order-now does not resolve ambiguous multiple new paid orders',()=>{
+ const order={id:451548046,shopifyId:12721784717684,status:'PROCESSED',financialStatus:'paid'};
+ assert.equal(verifyAction('order-now',{},before,{subscription:before,history:[order,{...order,id:451548047,shopifyId:12721784717685}]},{historyIds:[]}),false);
+});
 test('skip selects the matching next Admin billingDate from unordered UNPROCESSED rows',()=>{
  const s={...before,nextOrderDateEpoch:1799944018};
  const first={id:431535744,status:'UNPROCESSED',billingDate:'2027-01-14T16:26:58.000Z'};

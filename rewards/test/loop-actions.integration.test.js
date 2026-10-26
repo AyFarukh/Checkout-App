@@ -30,6 +30,17 @@ for(const [action,payload] of actionCases) test(`${action}: real HTTP adapter, M
 test('gift cannot claim success or send an unverified provider request',async()=>{
  await assert.rejects(service.preview(identity,request('gift',{})),e=>e.code==='GIFT_API_UNAVAILABLE');assert.equal(provider.writes.length,0);
 });
+for(const financialStatus of ['paid','pending','refunded'])test(`existing unknown order-now reconciles Admin ${financialStatus} history without redispatch`,async()=>{
+ const b=request('order-now',{preponeFutureOrder:true});
+ provider.history=[{id:451548046,shopifyId:12721784717684,status:'PROCESSED',financialStatus}];
+ await LoopActionAttempt.create({...identity,subscriptionId:b.subscriptionId,action:b.action,payload:b.payload,requestKey:b.requestKey,requestHash:'existing-order-now',status:'unknown',lockKey:`${identity.shop}:${b.subscriptionId}`,context:{before:structuredClone(provider.subscription),plan:{historyIds:[]}}});
+ const result=await service.status(identity,b);
+ assert.equal(result.applied,financialStatus==='paid');assert.equal(result.verified,financialStatus==='paid');
+ assert.equal(provider.writes.length,0);
+ const stored=await LoopActionAttempt.findOne({requestKey:b.requestKey});
+ assert.equal(Boolean(stored.lockKey),financialStatus!=='paid');
+ assert.equal((await service.status(identity,b)).applied,financialStatus==='paid');assert.equal(provider.writes.length,0);
+});
 for(const scenario of ['unchanged','changed','active-worker','valid-fixture','recent'])test(`invalid address test-fixture recovery: ${scenario}`,async()=>{
  const b=request('edit-address',{...provider.subscription.shippingAddress,address1:scenario==='valid-fixture'?'2 Test Road':'REPLACE'});
  const original=structuredClone(provider.subscription);
