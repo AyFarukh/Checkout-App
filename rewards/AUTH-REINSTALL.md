@@ -1,5 +1,9 @@
 # Shopify reinstall authentication recovery
 
+This records the initial fix in `90ec8dc`. The subsequent hardening work adds
+token encryption and uninstall handling; [TOKEN-HARDENING.md](TOKEN-HARDENING.md)
+supersedes the original limitations below and contains rollout requirements.
+
 ## Finding
 
 The exact reported message is emitted only by `shopify-token.service.js` when

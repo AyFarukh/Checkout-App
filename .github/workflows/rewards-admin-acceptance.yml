@@ -147,6 +147,9 @@ jobs:
       - name: Run FTR-ADM-WH-001 through FTR-ADM-WH-012
         working-directory: rewards
         run: npm run test:admin-acceptance 2>&1 | tee test-results/admin-acceptance.log
+      - name: Verify encrypted token lifecycle and uninstall authentication
+        working-directory: rewards
+        run: node --test --test-concurrency=1 test/token-lifecycle.acceptance.test.js test/uninstall-webhook.acceptance.test.js
       - name: Enforce FTR-ADM-WH-011 concurrency result
         if: always()
         run: |

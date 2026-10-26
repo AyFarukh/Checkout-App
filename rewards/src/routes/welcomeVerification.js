@@ -57,7 +57,7 @@ welcomeVerification.post("/", requireDatabase, async (req,res) => {
   const shop = String(req.query.shop || "").trim().toLowerCase();
   if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop)) return res.status(403).json({error:"Invalid shop"});
   // Restrict lookups to stores already authorized in the Rewards token store.
-  const installation = await ShopifyOfflineToken.exists({shop});
+  const installation = await ShopifyOfflineToken.exists({shop, uninstalledAt: null, accessToken: { $type: "string" }});
   if (!installation) return res.status(503).json({error:"Shop authorization required"});
   try {
     const query = `query($query:String!){customers(first:20,query:$query){nodes{id email numberOfOrders}}}`;
