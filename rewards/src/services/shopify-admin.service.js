@@ -1,4 +1,4 @@
-import { storedOfflineTokenForShop } from "./shopify-token.service.js";
+import { storedOfflineTokenForShop, shopifyReauthRequired } from "./shopify-token.service.js";
 
 const API_VERSION=process.env.SHOPIFY_ADMIN_API_VERSION||"2026-07";
 const REWARDS_FUNCTION_TITLE="FreeTheRoots Rewards Discount";
@@ -22,7 +22,7 @@ async function tokenForShop(shop){
     if(typeof token==="string"&&token.trim())return token.trim();
   }
   const fallback=String(process.env.SHOPIFY_ADMIN_ACCESS_TOKEN||"").trim();
-  if(fallback)return fallback;
+  if(fallback&&String(process.env.SHOPIFY_ADMIN_SHOP||"").trim().toLowerCase()===domain)return fallback;
   throw Object.assign(new Error(`No stored Shopify offline token for ${domain}. Open the embedded app to authorize background sync.`),{permanent:true,code:"SHOPIFY_OFFLINE_TOKEN_MISSING"});
 }
 
@@ -40,6 +40,7 @@ async function adminGraphql(shop,query,variables={},apiVersion=API_VERSION){
   }
   const json=await response.json().catch(()=>({}));
   if(!response.ok){
+    if(response.status===401)throw shopifyReauthRequired();
     const retryable=response.status===429||response.status>=500;
     throw Object.assign(new Error(`Shopify Admin API HTTP ${response.status}`),{code:`SHOPIFY_HTTP_${response.status}`,retryable,permanent:!retryable});
   }

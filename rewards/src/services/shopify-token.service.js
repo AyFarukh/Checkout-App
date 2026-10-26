@@ -2,6 +2,12 @@ import { ShopifyOfflineToken } from "../models/ShopifyOfflineToken.js";
 
 const SKEW = 60_000;
 
+export function shopifyReauthRequired() {
+  return Object.assign(new Error("Shopify authorization needs renewal. Open the app in this store's Shopify admin, then retry."), {
+    code: "SHOPIFY_REAUTH_REQUIRED", statusCode: 409, permanent: true,
+  });
+}
+
 function creds() {
   const clientId = String(process.env.SHOPIFY_API_KEY || "").trim();
   const clientSecret = String(process.env.SHOPIFY_API_SECRET || "").trim();
@@ -23,7 +29,8 @@ async function request(shop, params) {
   const json = await response.json().catch(() => ({}));
   if (!response.ok || !json.access_token) {
     throw Object.assign(
-      new Error(json.error_description || json.error || `Shopify token endpoint returned HTTP ${response.status}`),
+      // Do not surface arbitrary provider response text in logs or API errors.
+      new Error(`Shopify token endpoint returned HTTP ${response.status}`),
       {
         code: "SHOPIFY_TOKEN_EXCHANGE_FAILED",
         permanent: response.status >= 400 && response.status < 500,
@@ -74,19 +81,20 @@ export async function exchangeOfflineToken({ shop, idToken }) {
 }
 
 async function refresh(record) {
-  if (!record.refreshToken) {
-    throw Object.assign(new Error("Shopify offline token needs merchant reauthentication"), {
-      code: "SHOPIFY_REAUTH_REQUIRED",
-      permanent: true,
-    });
+  if (!record.refreshToken || (record.refreshTokenExpiresAt && record.refreshTokenExpiresAt.getTime() <= Date.now())) {
+    throw shopifyReauthRequired();
   }
   const { clientId, clientSecret } = creds();
-  const payload = await request(record.shop, {
+  let payload;
+  try { payload = await request(record.shop, {
     grant_type: "refresh_token",
     refresh_token: record.refreshToken,
     client_id: clientId,
     client_secret: clientSecret,
-  });
+  }); } catch (error) {
+    if (error.shopifyStatus === 400 || error.shopifyStatus === 401) throw shopifyReauthRequired();
+    throw error;
+  }
   return persist(record.shop, payload, true);
 }
 
@@ -99,14 +107,15 @@ export async function storedOfflineTokenForShop(shop) {
 }
 
 export async function ensureOfflineTokenForAdminSession({ shop, idToken }) {
-  const existing = await storedOfflineTokenForShop(shop);
-  if (existing) return { shop, status: "ready" };
   if (!idToken) {
     throw Object.assign(new Error("A fresh Shopify ID token is required to authorize background reward sync"), {
       statusCode: 401,
       code: "SHOPIFY_ID_TOKEN_REQUIRED",
     });
   }
+  // The route verifies this ID token and derives shop from its signed destination.
+  // Reinstall revokes tokens before their local expiry. Always acquire from the
+  // fresh admin session rather than trusting or refreshing the old installation.
   await exchangeOfflineToken({ shop, idToken });
   const persisted = await storedOfflineTokenForShop(shop);
   if (!persisted) throw new Error("Shopify offline token was not persisted");
