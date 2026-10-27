@@ -24,7 +24,12 @@ test('referral progress is determinate at zero, partial completion, and completi
       await act(async()=>{render(h(ReferralSection,{apiBase:`https://rewards.example/${index}`}),root);});
       await act(async()=>{await new Promise(resolve=>setTimeout(resolve,0));});
       const progress=root.querySelector('s-progress');
-      assert.ok(progress,'loaded referral progress must exist');
+      if(count===0){
+        assert.equal(progress,null,'zero referrals must not mount Shopify’s animated progress component');
+        assert.ok(root.querySelector('s-divider'),'zero referrals must display a static empty track');
+        continue;
+      }
+      assert.ok(progress,'positive referral progress must exist');
       assert.equal(progress.getAttribute('value'),String(count),`count ${count} must set an explicit value rather than animate as loading`);
       assert.equal(progress.getAttribute('max'),'5');
     }

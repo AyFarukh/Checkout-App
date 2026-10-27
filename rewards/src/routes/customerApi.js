@@ -9,14 +9,15 @@ import { Redemption } from "../models/Redemption.js";
 import { reserveRedemption, releaseRedemption } from "../services/redemption.service.js";
 import { referralCustomer } from "./referralCustomer.js";
 
+export const customerRewards = Router();
 export const customerApi = Router();
-customerApi.use(customerAuth);
-customerApi.use("/referrals", referralCustomer);
+customerApi.use(customerAuth, customerRewards);
+customerRewards.use("/referrals", referralCustomer);
 
 function context(req) { return req.customerSession; }
 function safeRedemption(value) { const item = value?.toObject ? value.toObject() : { ...value }; delete item.tokenHash; return item; }
 
-customerApi.get("/me", async (req, res, next) => {
+customerRewards.get("/me", async (req, res, next) => {
   try {
     const { shop, shopifyCustomerId } = context(req);
     const [customer, rewards, rules, activity, redemptions] = await Promise.all([
@@ -45,6 +46,7 @@ customerApi.get("/me", async (req, res, next) => {
       }
     }
     res.json({
+      storefrontRewardsUrl: `https://${shop}/apps/ftr-welcome/rewards`,
       customer: resolvedCustomer,
       rewards,
       rules,
@@ -54,7 +56,7 @@ customerApi.get("/me", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-customerApi.post("/redemptions/reserve", async (req, res, next) => {
+customerRewards.post("/redemptions/reserve", async (req, res, next) => {
   try {
     const { shop, shopifyCustomerId } = context(req);
     const rewardId = String(req.body?.rewardId || "").trim();
@@ -65,7 +67,7 @@ customerApi.post("/redemptions/reserve", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-customerApi.post("/redemptions/:reference/cancel", async (req, res, next) => {
+customerRewards.post("/redemptions/:reference/cancel", async (req, res, next) => {
   try {
     const { shop, shopifyCustomerId } = context(req);
     const owned = await Redemption.findOne({ shop, shopifyCustomerId, publicReference: req.params.reference }).lean();

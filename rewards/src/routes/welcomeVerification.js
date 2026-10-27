@@ -7,7 +7,10 @@ import { getCustomerLoopSubscriptions } from "../services/loop-subscriptions.ser
 import { enrichSubscriptionImages } from "../services/subscription-images.service.js";
 import { referralProxy } from "./referralCustomer.js";
 
+import { rewardsProxy } from "./rewardsStorefront.js";
+
 export const welcomeVerification = Router();
+welcomeVerification.use("/rewards", requireDatabase, rewardsProxy(signed));
 welcomeVerification.use("/referrals", requireDatabase, referralProxy(signed));
 const attempts = new Map();
 export function signed(query) {

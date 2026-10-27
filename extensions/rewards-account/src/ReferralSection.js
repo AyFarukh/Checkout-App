@@ -91,7 +91,7 @@ export default function ReferralSection({apiBase}) {
           shareTile('More','arrow-up-right',invite)):null)),
       card(stack(
         grid('minmax(0, 1fr) auto',grid('auto minmax(0, 1fr)',icon('gift-card',{tone:'success'}),heading('Referral progress')),text(`${count}/${goal}`,{tone:'success',type:'strong'})),
-        h('s-progress',{max:Number(goal),value:Math.max(0,Math.min(count,Number(goal))),
+        count<=0?h('s-divider'):h('s-progress',{max:Number(goal),value:Math.max(0,Math.min(count,Number(goal))),
           // Preact skips value=0 when the custom element already reports its default zero.
           // An explicit attribute is required to keep Shopify out of indeterminate mode.
           ref:element=>{if(element)element.setAttribute('value',String(Math.max(0,Math.min(count,Number(goal)))));},accessibilityLabel:`${count} of ${goal} successful referrals`}),
