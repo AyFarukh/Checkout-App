@@ -10,13 +10,16 @@ continue to come from the saved program settings.
 1. In Shopify admin, open **Settings → Checkout**.
 2. Under **Configurations**, choose **Edit** for the active configuration.
 3. In the page selector, choose a customer account page.
-4. Open **Sections → Main** and set **Accent** to `#259260`.
+4. Open **Sections → Main** and set **Accent** to `#288F5F`.
 5. Set **Background** to `#FAF8F5` if desired, then save.
 
 These settings apply to customer account branding, including native buttons.
 The extension cannot assign arbitrary hex colors to individual buttons or boxes.
+In particular, the invitation hero and account balance card cannot be set to
+`#784930` independently within this native extension. Do not set the entire
+account page background to brown to approximate those two cards.
 Its semantic backgrounds and typography follow the merchant's account branding.
-The exact brown hero (`#7C4B32`), cream tiles (`#FCF3E7`), and custom typography
+The exact brown hero (`#784930`), cream tiles (`#FCF3E7`), and custom typography
 remain available on the separate storefront referral page, linked from the
 account extension. Shopify's native extension cannot reproduce those details
 exactly.
@@ -40,3 +43,10 @@ After publishing and setting the account accent, reload the customer account
 Rewards page. Check the three sharing tiles, compact milestone rows, progress,
 full-width green invitation button, copy actions, and the expandable friend-code
 form. Also check a narrow mobile viewport and a customer with an unlocked gift.
+
+## Progress regression check
+
+Run `npm run test:account-ui` from the repository root. The DOM regression test
+checks zero, partial, and completed referral counts. Zero must write an explicit
+`value="0"` attribute: Preact otherwise skips the default zero property and
+Shopify renders an indeterminate loading indicator.

@@ -6,7 +6,8 @@
     "dev": "shopify app dev",
     "build": "shopify app build",
     "deploy": "shopify app deploy",
-    "info": "shopify app info"
+    "info": "shopify app info",
+    "test:account-ui": "node --test extensions/rewards-account/test/*.test.mjs"
   },
   "dependencies": {
     "@preact/signals": "latest",
@@ -14,7 +15,8 @@
     "preact": "latest"
   },
   "devDependencies": {
-    "@shopify/cli": "latest"
+    "@shopify/cli": "latest",
+    "linkedom": "^0.18.12"
   },
   "engines": {
     "node": ">=22.12.0"

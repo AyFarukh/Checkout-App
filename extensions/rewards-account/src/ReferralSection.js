@@ -32,7 +32,7 @@ export default function ReferralSection({apiBase}) {
     if(value.status==='QUALIFIED'||value.status==='REVOKED'||(value.expiresAt&&new Date(value.expiresAt)<=new Date()))return text('This offer has been used or has expired.',{color:'subdued'});
     return stack(text('Your code: '+value.discountCode,{type:'strong'}),
       value.expiresAt?text('Expires '+new Date(value.expiresAt).toLocaleDateString(),{color:'subdued'}):null,
-      button('Copy code',()=>copy(value.discountCode),{variant:'secondary'}),
+      button('Copy code',()=>copy(value.discountCode),{variant:'primary'}),
       value.minimumSpend?text('Minimum merchandise subtotal before discount: '+money(value.minimumSpend),{color:'subdued'}):null,
       value.productUrl?h('s-link',{href:value.productUrl},'View gift product'):null);
   }
@@ -61,15 +61,15 @@ export default function ReferralSection({apiBase}) {
         m.unlocked?icon('check',{tone:'success'}):text(String(m.threshold),{type:'strong',color:'subdued'})));
     const labels=stack(text(`${m.threshold} ${Number(m.threshold)===1?'referral':'referrals'} — ${label}`),description?text(description,{type:'small',color:'subdued'}):null);
     const action=m.unlocked&&m.kind==='PRODUCT'&&!m.discountCode&&['AVAILABLE','ISSUED'].includes(m.status)
-      ?button('Claim gift',()=>claim('/milestones/'+encodeURIComponent(m.id)+'/claim',{},String(m.id)),{variant:'secondary',loading:busy===String(m.id)}):null;
+      ?button('Claim gift',()=>claim('/milestones/'+encodeURIComponent(m.id)+'/claim',{},String(m.id)),{variant:'primary',loading:busy===String(m.id)}):null;
     return h('s-stack',{key:m.id,accessibilityRole:'list-item',direction:'block',gap:'small',paddingBlock:'small'},
       grid('36px minmax(0, 1fr) auto',marker,labels,
         h('s-stack',{direction:'block',gap:'small',alignItems:'end'},state?text(state,{tone:m.unlocked?'success':'auto',type:'small'}):null,action)),
       m.discountCode?h('s-box',{padding:'base',background:'subdued',borderRadius:'base'},offer(m)):null);
   }
-  const shareTile=(label,type,onClick,href)=>h('s-clickable',{
-    ...(href?{href}:{onClick}),disabled:Boolean(busy),padding:'base',background:'subdued',borderRadius:'large',inlineSize:'100%',accessibilityLabel:`Share referral link: ${label}`,
-  },h('s-stack',{direction:'block',gap:'small',alignItems:'center'},icon(type,{tone:'neutral'}),text(label)));
+  const shareTile=(label,type,onClick,href)=>h('s-button',{
+    ...(href?{href}:{onClick}),disabled:Boolean(busy),variant:'primary',inlineSize:'fill',accessibilityLabel:`Share referral link: ${label}`,
+  },icon(type),label);
 
   return h('s-box',{inlineSize:'100%',maxInlineSize:'624px'},
     h('s-stack',{direction:'block',gap:'large'},
@@ -85,20 +85,23 @@ export default function ReferralSection({apiBase}) {
           h('s-box',{padding:'base',background:'subdued',borderRadius:'large',overflow:'hidden'},text(data.shareUrl)),
           button('Copy',()=>copy(data.shareUrl),{variant:'primary',accessibilityLabel:'Copy referral link'})):null,
         data.code?grid('minmax(0, 1fr) auto',text('Code: '+data.code,{type:'small',color:'subdued'}),
-          button('Copy code',()=>copy(data.code),{variant:'secondary'})):null,
+          button('Copy code',()=>copy(data.code),{variant:'primary'})):null,
         data.shareUrl?grid('repeat(3, minmax(0, 1fr))',shareTile('Text','mobile',null,'sms:?body='+encodeURIComponent(message)),
           shareTile('Email','email',null,'mailto:?subject='+encodeURIComponent('A gift from FreeTheRoots')+'&body='+encodeURIComponent(message)),
           shareTile('More','arrow-up-right',invite)):null)),
       card(stack(
         grid('minmax(0, 1fr) auto',grid('auto minmax(0, 1fr)',icon('gift-card',{tone:'success'}),heading('Referral progress')),text(`${count}/${goal}`,{tone:'success',type:'strong'})),
-        h('s-progress',{max:Number(goal),value:Math.min(count,Number(goal)),accessibilityLabel:`${count} of ${goal} successful referrals`}),
+        h('s-progress',{max:Number(goal),value:Math.max(0,Math.min(count,Number(goal))),
+          // Preact skips value=0 when the custom element already reports its default zero.
+          // An explicit attribute is required to keep Shopify out of indeterminate mode.
+          ref:element=>{if(element)element.setAttribute('value',String(Math.max(0,Math.min(count,Number(goal)))));},accessibilityLabel:`${count} of ${goal} successful referrals`}),
         next?h('s-paragraph',null,text(`${Number(next.threshold)-count} more ${Number(next.threshold)-count===1?'friend':'friends'} to unlock `,{color:'subdued'}),text(next.title,{type:'strong'}),text('.'))
           :text('You have unlocked every milestone.',{tone:'success'}),
         h('s-stack',{direction:'block',gap:'small',accessibilityRole:'unordered-list',accessibilityLabel:'Referral milestones'},...milestones.map(milestoneRow)),
         Number(data.referralDebt)>0?text('Some referral points are being adjusted following a returned or canceled order.',{type:'small',color:'subdued'}):null)),
       data.shareUrl?button('Invite friends now',invite,{variant:'primary',inlineSize:'fill'}):null,
       referralPage?h('s-link',{href:referralPage},'View the fully styled referral page'):null,
-      button(showFriend?'Hide friend offer':'Have a referral code?',()=>setShowFriend(!showFriend),{variant:'secondary',inlineSize:'fill'}),
+      button(showFriend?'Hide friend offer':'Have a referral code?',()=>setShowFriend(!showFriend),{variant:'primary',inlineSize:'fill'}),
       showFriend?card(stack(heading('Claim your friend offer'),text('Claim before placing your first order. Eligibility and expiry apply.',{color:'subdued'}),
         data.friendOffer?.discountCode?offer(data.friendOffer):stack(
           h('s-text-field',{label:'Referral code',value:code,onInput:event=>setCode(event.currentTarget.value)}),
