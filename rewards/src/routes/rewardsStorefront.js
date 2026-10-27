@@ -13,7 +13,7 @@ export function rewardsProxy(verify){
   if(!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop))return res.status(403).json({error:'Invalid shop'});
   req.storefrontShop=shop;next();
  });
- for(const file of ['rewards-customer.js','rewards-customer.css','referrals-customer.js','referrals-customer.css']){
+ for(const file of ['rewards-customer.js','rewards-customer.css','referrals-customer.js','referrals-customer.css','ftr-logo.png','nunito-sans-400.ttf','nunito-sans-600.ttf','nunito-sans-700.ttf','nunito-sans-800.ttf','nunito-sans-OFL.txt']){
   router.get('/assets/'+file,(_req,res)=>res.sendFile(path.join(publicDir,file)));
  }
  router.get('/',(_req,res)=>res.sendFile(path.join(publicDir,'rewards-customer.html')));

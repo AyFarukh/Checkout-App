@@ -39,7 +39,7 @@
   }
   function render() {
     content.replaceChildren();
-    const heading=add(el('header',null,'page-heading'),el('p','INVITE FRIENDS','eyebrow'),el('h1','Refer & Earn'));content.append(heading);
+    const heading=add(el('header',null,'page-heading'),el('p','INVITE FRIENDS','eyebrow'),el(document.getElementById('rewards-content')?'h2':'h1','Refer & Earn'));content.append(heading);
     if (!data.enabled) { add(content,card('Referrals are not available right now')); return; }
     const program=data.program||{},count=Number(data.qualifiedCount||0),milestones=[...(data.milestones||[])].sort((a,b)=>Number(a.threshold)-Number(b.threshold));
     const hero=el('section',null,'hero');
@@ -71,8 +71,9 @@
       if(m.unlocked)marker.append(icon('check'));
       const label=m.kind==='REFERRAL_POINTS'?`${Number(program.referrerPoints||0)} points`:m.title;
       const right=el('div',null,'milestone-right');
-      if(m.unlocked)right.append(el('span',['CONSUMED','REFUNDED'].includes(m.status)?'Claimed':m.status==='EXPIRED'?'Expired':'Unlocked','milestone-state'));
-      if(!m.discountCode&&m.unlocked&&m.kind==='PRODUCT'&&['AVAILABLE','ISSUED'].includes(m.status)){
+      const canClaim=!m.discountCode&&m.unlocked&&m.kind==='PRODUCT'&&['AVAILABLE','ISSUED'].includes(m.status);
+      if(m.unlocked&&!canClaim)right.append(el('span',['CONSUMED','REFUNDED'].includes(m.status)?'Claimed':m.status==='EXPIRED'?'Expired':'Unlocked','milestone-state'));
+      if(canClaim){
         const claimButton=button('Claim gift',()=>claim('/milestones/'+encodeURIComponent(m.id)+'/claim',{}));claimButton.className='milestone-action';claimButton.setAttribute('aria-label','Claim '+m.title);right.append(claimButton);
       }
       const labelNode=el('span',`${m.threshold} ${Number(m.threshold)===1?'referral':'referrals'} — ${label}`,'milestone-label');
@@ -91,5 +92,5 @@
     content.append(friend);
   }
   function guest() { content.replaceChildren(); const box=card('Sign in to grow your rewards'); box.classList.add('guest-card'); add(box,el('p','Sign in to view your unique referral link and claim a friend offer.')); const login=el('a','Sign in','button'); login.href='/account/login?return_url='+encodeURIComponent(location.pathname+location.search); box.append(login); if(incoming) add(box,el('p','Your referral code: '+incoming,'code'),button('Copy referral code',()=>copy(incoming),true)); add(box,el('p','If sign-in does not return you here, reopen this referral link after signing in.','fine'),button('Copy this link',()=>copy(location.href),true)); content.append(box); }
-  request('/me').then(result=>{data=result;status.textContent='';render();}).catch(error=>{ if(error.status===401){status.textContent='';guest();}else{status.textContent=error.message;content.append(button('Try again',()=>location.reload()));} });
+  request('/me').then(result=>{data=result;document.dispatchEvent(new CustomEvent('ftr:referrals-loaded',{detail:result}));status.textContent='';render();}).catch(error=>{ if(error.status===401){status.textContent='';guest();}else{status.textContent=error.message;content.append(button('Try again',()=>location.reload()));} });
 })();

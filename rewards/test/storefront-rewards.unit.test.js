@@ -21,7 +21,10 @@ test('custom rewards page requires signed storefront requests and signed custome
  function query(customer=''){const q={shop:'example.myshopify.com',timestamp:String(Math.floor(Date.now()/1000)),logged_in_customer_id:customer};q.signature=createHmac('sha256',process.env.SHOPIFY_API_SECRET).update(Object.keys(q).sort().map(k=>k+'='+q[k]).join('')).digest('hex');return new URLSearchParams(q);}
  try{
   assert.equal((await fetch(base)).status,403);
-  const page=await fetch(base+'?'+query());assert.equal(page.status,200);assert.match(await page.text(),/rewards-customer.js/);
+  const page=await fetch(base+'?'+query());assert.equal(page.status,200);const html=await page.text();assert.match(html,/rewards-customer.js/);
+  const cssResponse=await fetch(base+'/assets/rewards-customer.css?'+query());assert.equal(cssResponse.status,200);const css=await cssResponse.text();
+  const assets=new Set([...html.matchAll(/\/apps\/ftr-welcome\/rewards\/assets\/([^\"'()<>\s]+)/g),...css.matchAll(/\/apps\/ftr-welcome\/rewards\/assets\/([^\"'()<>\s]+)/g)].map(match=>match[1]));
+  for(const asset of assets){const response=await fetch(base+'/assets/'+asset+'?'+query());assert.equal(response.status,200,'required page asset must be served: '+asset);assert.ok((await response.arrayBuffer()).byteLength>0);}
   assert.equal((await fetch(base+'/api/me?'+query())).status,401);
   const profile=await fetch(base+'/api/me?'+query('101'));assert.equal(profile.status,200);
   const result=await profile.json();assert.equal(result.customer.pointsBalance,123);assert.equal(result.storefrontRewardsUrl,'https://example.myshopify.com/apps/ftr-welcome/rewards');

@@ -20,7 +20,7 @@ test('storefront retries preserve uncertain requests but never call released rew
  vm.runInNewContext(source,{document,fetch,crypto:{randomUUID},navigator:{},location:{pathname:'/apps/ftr-welcome/rewards',search:''},Intl,Date,console});
  await flush();
  const click=label=>{const button=[...document.querySelectorAll('button')].find(node=>node.textContent===label);assert.ok(button,label+' button exists');button.click();};
- click('Redeem reward');click('Confirm redemption');await flush();
+ document.querySelector('button.reward-card').click();click('Confirm redemption');await flush();
  assert.match(document.getElementById('rewards-status').textContent,/unavailable/);
  click('Confirm redemption');await flush();
  assert.doesNotMatch(document.getElementById('rewards-status').textContent,/reward is ready/i);

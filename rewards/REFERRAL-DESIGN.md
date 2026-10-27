@@ -7,8 +7,12 @@ native styling.
 
 The custom page includes the existing balance, membership tiers, earning rules,
 reward confirmation and redemption, active codes, recent activity, and referral
-flow. All action buttons use `#288F5F`; both the account balance card and referral
-hero use `#784930` with light text. Referral milestones are list rows, and the
+flow. Primary action buttons use `#288F5F`; both the account balance card and referral
+hero use `#784930` with light text. Mobile follows the supplied Base44 reference:
+vertical tier and earning rows, two-column reward tiles, cream sharing tiles,
+Nunito Sans typography, and compact referral cards. Desktop uses a 1120px canvas,
+paired account cards, four-column reward grids, and a split referral layout.
+The logo and licensed font files are served locally through the signed proxy. Referral milestones are list rows, and the
 progress bar has an explicit numeric value, including zero. No account branding
 change is needed for the custom page. Shopify still controls the appearance of
 the single native account button that opens it.
@@ -60,3 +64,16 @@ Automated checks: `npm run test:account-ui` at repository root; `npm test` insid
 rejects terminal released reservations, and permits a fresh attempt. Signed proxy
 tests check forged identity, signed-out access, shop isolation, and cross-site
 writes. Real Shopify login and checkout remain deployment acceptance checks.
+
+## Responsive validation
+
+Browser checks covered 320, 375, 390, 768, and 1440px widths, including long
+reward names and claimable gifts. Synthetic preview data is not installed into
+the store. Only configured earning rules and rewards appear; referral points
+come from the enabled live referral program. Cart count is read from the
+storefront cart rather than copied from the prototype.
+
+For this frontend update, deploy the backend from the repository root with
+`flyctl deploy --remote-only --app freetheroots-rewards-system`. If the account
+link extension from the preceding release is already published, it needs no
+additional Shopify extension release for these styling changes.
