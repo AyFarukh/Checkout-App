@@ -1,0 +1,38 @@
+// Documented Loop Admin 2026-04 actions. No endpoint here is called unless
+// the caller explicitly invokes executeLoopAdminAction. Keep this server-only.
+import {loopAdminRequest} from "./loop-subscriptions.service.js";
+
+const OPERATIONS=Object.freeze({
+  skip:{method:"POST",suffix:"skipNext",body:()=>undefined},
+  "order-now":{method:"POST",suffix:"placeOrder",body:p=>({preponeFutureOrder:p.preponeFutureOrder===true})},
+  cancel:{method:"POST",suffix:"cancel",body:p=>({comment:p.comment||undefined,notifyCustomer:p.notifyCustomer!==false})},
+  frequency:{method:"PUT",suffix:"frequency",body:p=>({
+    billingPolicy:{interval:p.interval,intervalCount:p.intervalCount},
+    deliveryPolicy:{interval:p.interval,intervalCount:p.intervalCount},
+    discountType:"OLD"
+  })},
+});
+
+export function prepareLoopAdminAction(action,subscriptionId,payload={}) {
+  const operation=OPERATIONS[action];
+  if(!operation) throw new Error("This action does not have a verified Admin API adapter");
+  if(!/^\d+$/.test(String(subscriptionId))) throw new Error("Invalid Loop subscription ID");
+  if(action==="cancel" && (payload.confirmCancellation!==true || (payload.comment!==undefined && (typeof payload.comment!=="string"||payload.comment.length>500))))
+    throw new Error("Cancellation requires explicit confirmation and a short optional comment");
+  if(action==="frequency"&&(!["WEEK","MONTH"].includes(payload.interval)||
+      ![1,2,3,4,6].includes(payload.intervalCount)))
+    throw new Error("Invalid billing frequency");
+  if(action==="order-now"&&payload.preponeFutureOrder!==true)
+    throw new Error("Immediate order requires explicit preponeFutureOrder confirmation");
+  return {method:operation.method,pathname:`subscription/${subscriptionId}/${operation.suffix}`,
+    body:operation.body(payload)};
+}
+
+export async function executeLoopAdminAction(action,subscriptionId,payload,{signal}={}) {
+  // Execution must be wired only through a durable, customer-bound, verified write flow.
+  // This adapter remains fail-closed even if a global mutation flag is enabled.
+  if (process.env.LOOP_VERIFIED_ACTION_EXECUTION !== "enabled-after-integration-tests")
+    throw new Error("Loop action execution has not passed integration verification");
+  const request=prepareLoopAdminAction(action,subscriptionId,payload);
+  return loopAdminRequest(request.pathname,{...request,signal});
+}
