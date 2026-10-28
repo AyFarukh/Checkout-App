@@ -4,7 +4,7 @@ The backend changes are on PR #21 (`feature/loop-action-adapter-v1`), and the th
 
 Eleven documented actions have executable implementations: reschedule, skip, delay, order now, frequency, pause, cancel, edit products, shipping address, discount, and subscription notes. Product editing supports quantity, add, swap and remove; Loop calculates pricing. Removing the last recurring line and editing bundled subscriptions are blocked. Use Loop's bundle editor for bundle changes.
 
-**Gift an order is blocked with `GIFT_API_UNAVAILABLE`.** Loop documents its Gift instead of skip feature, including immediate payment and temporary shipping changes, but its published API index provides no gift-order endpoint contract. Do not simulate it by changing a permanent shipping address, placing an order, and trying to restore the address. Ask Loop for its supported endpoint, payload, authentication, eligibility, response and order verification contract. The gift tests currently prove that no fabricated write or false success occurs; they do not count as a successful gifting test.
+**Gift an order is blocked with `GIFT_API_UNAVAILABLE`.** Loop support confirmed on 2026-10-27 that no API is currently available to implement gifting an upcoming order in a custom portal. Do not simulate it by changing a permanent shipping address, placing an order, and trying to restore the address. Ask Loop for its supported endpoint, payload, authentication, eligibility, response and order verification contract. The gift tests currently prove that no fabricated write or false success occurs; they do not count as a successful gifting test.
 
 ## 1. Get both branches
 
@@ -236,7 +236,7 @@ Use this only after the old CLI has exited, no other worker can dispatch, and Lo
 
 The local record becomes rejected with `DISCOUNT_TEST_DEFERRED`, keeps its provider diagnostics and receives an operator-resolution audit record. The CLI synchronizes its private state file. No Loop mutation is sent, no successful discount application is claimed, and the discount test remains pending. After deferral, refresh the cancellation preview before executing it. Tests verify rejection guards, zero discount writes and a subsequent independently verified cancellation through the normal executor.
 
-Gift documentation was rechecked on 2026-10-26. Published gift-subscription APIs exist, but those differ from gifting the upcoming order of this normal subscription. A verified supported contract for the requested gift-instead-of-skip action is still required; do not substitute the gift-subscription APIs or fabricate an address/order sequence.
+Loop support confirmed on 2026-10-27 that gifting the upcoming order is not available through an API for custom portals. Published gift-subscription APIs are a different feature. Keep gift blocked; do not substitute those APIs or fabricate an address/order sequence.
 
 ## Current release status
 
@@ -252,3 +252,33 @@ Production mutation enablement intentionally remains unavailable in this impleme
 - [Add line](https://developer.loopwork.co/reference/add-line), [swap](https://developer.loopwork.co/reference/swap-line), [remove](https://developer.loopwork.co/reference/remove-line), [quantity](https://developer.loopwork.co/reference/edit-line)
 - [Address](https://developer.loopwork.co/reference/update-address-on-subscription), [discount](https://developer.loopwork.co/reference/add-discount), [subscription note](https://developer.loopwork.co/reference/update-note)
 - [Gift instead of skip](https://help.loopwork.co/en/articles/12714027-gift-instead-of-skip)
+
+## Rewards branch integration and discount retest (2026-10-28)
+
+The subscription branch integrates rewards-admin-v1 commit `4918d0e1777b2c8d28b30621d6e9f42450170366`, including storefront/account/checkout redesigns, referrals and encrypted credential lifecycle. Retained uninstall records no longer authorize subscription actions or subscription storefront reads: an active installation with nonempty credentials is required. The production write gate and Fly configuration remain unchanged. This is a development branch merge, not a production deployment or a PR merge.
+
+Verified on the combined code: 104 unit tests with local Mongo (no skips), 62 subscription HTTP/Mongo integration tests, 33 fixture browser tests, 2 account widget tests, 7 checkout widget tests, and 44 rewards acceptance tests. Four existing business-event replay checks skip on the empty test database because they require historical EARN, REFUND, committed REDEEM and REVERSAL records. They are not claimed as passing. The browser harness emulates the signed proxy; real Shopify login/proxy acceptance remains outstanding.
+
+User-supplied live evidence covers 10 actions. Discount remains pending, and gift is externally blocked. Loop/client support reported that removing the existing 100% product discount allowed the Shopify discount to be applied; our custom API path still needs its own verified retest.
+
+Perform these steps only on authorized subscription 42347174:
+
+1. Privately save its current status, future billing schedule, full discount settings and usage/remaining-cycle counts. The last verified status was CANCELLED. Reactivate it in Loop admin with a future billing date, verify no billing is due now, then remove only the `Test Subscription` 100% product discount. Keep the shipping discount. Do not place an order or run order-now while the product discount is absent.
+2. In Checkout-App/rewards, update only the discount fixture in the existing private `test/fixtures/loop-live-actions.json` to `"discount": { "value": "SUBTESTING1" }` (or the configured LOOP_LIVE_FIXTURES file). Preserve valid JSON and every other fixture. Do not copy the template over the private fixture.
+3. Keep the existing Mongo database, ledger and state file. Confirm the previous discount attempt is already resolved as DISCOUNT_TEST_DEFERRED before creating a new request. If it remains unknown, stop and reconcile that original attempt; never delete its history or bypass its lock.
+4. Run:
+
+```bash
+npm run test:subscriptions:live -- --inspect
+npm run test:subscriptions:live -- --action discount --new --preview
+npm run test:subscriptions:live -- --action discount --execute
+npm run test:subscriptions:live -- --action discount --status
+npm run test:subscriptions:live -- --action discount --execute
+```
+
+The first execute must be applied/verified with replayed=false. Status and repeated execute must be applied/verified with replayed=true and the same request key. Confirm SUBTESTING1 is active in Loop. If the outcome is unknown, preserve that request and run only status; do not begin another request or change the discount set while investigating.
+
+5. Once the result is confirmed, remove SUBTESTING1 and restore the original product-discount eligibility, remaining cycles and shipping settings. Avoid resetting consumed cycles. Restore the saved status (CANCELLED unless a different state was explicitly authorized) and confirm the original product/address/frequency remain intact. Retain test evidence privately. No paid order is required for this discount-action test.
+
+Live execution requires the operator's existing private .env.loop-test, local ledger and Loop credentials; these are not present in the integration workspace. Never upload them, and do not enable production mutations to run this test.
+

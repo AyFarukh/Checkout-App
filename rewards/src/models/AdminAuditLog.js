@@ -3,8 +3,8 @@ import mongoose from "mongoose";
 const adminAuditLogSchema = new mongoose.Schema({
   shop: { type: String, required: true, trim: true, lowercase: true, index: true },
   actorId: { type: String, required: true, trim: true },
-  action: { type: String, required: true, enum: ["WEBHOOK_DEAD_RETRY", "REDEMPTION_CANCELLED"] },
-  resourceType: { type: String, required: true, enum: ["WebhookEvent", "Redemption"] },
+  action: { type: String, required: true, enum: ["WEBHOOK_DEAD_RETRY", "REDEMPTION_CANCELLED", "REFERRAL_PROGRAM_UPDATED"] },
+  resourceType: { type: String, required: true, enum: ["WebhookEvent", "Redemption", "ReferralProgram"] },
   resourceId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
   requestId: { type: String, trim: true },
   before: mongoose.Schema.Types.Mixed,

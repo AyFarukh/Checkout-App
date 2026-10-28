@@ -7,8 +7,13 @@ import { ShopifyOfflineToken } from "../models/ShopifyOfflineToken.js";
 import { shopifyAdminGraphql } from "../services/shopify-admin.service.js";
 import { getCustomerLoopSubscriptions } from "../services/loop-subscriptions.service.js";
 import { enrichSubscriptionImages } from "../services/subscription-images.service.js";
+import { referralProxy } from "./referralCustomer.js";
+
+import { rewardsProxy } from "./rewardsStorefront.js";
 
 export const welcomeVerification = Router();
+welcomeVerification.use("/rewards", requireDatabase, rewardsProxy(signed));
+welcomeVerification.use("/referrals", requireDatabase, referralProxy(signed));
 const attempts = new Map();
 const LOOP_API_BASE = "https://api.loopsubscriptions.com/admin/2026-04";
 async function hasActiveLoopSubscription(email) {
@@ -47,7 +52,7 @@ welcomeVerification.post("/", requireDatabase, async (req,res) => {
   const shop = String(req.query.shop || "").trim().toLowerCase();
   if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop)) return res.status(403).json({error:"Invalid shop"});
   // Restrict lookups to stores already authorized in the Rewards token store.
-  const installation = await ShopifyOfflineToken.exists({shop});
+  const installation = await ShopifyOfflineToken.exists({shop, uninstalledAt: null, accessToken: { $type: "string" }});
   if (!installation) return res.status(503).json({error:"Shop authorization required"});
   try {
     const query = `query($query:String!){customers(first:20,query:$query){nodes{id email numberOfOrders}}}`;
@@ -80,7 +85,7 @@ welcomeVerification.get("/subscriptions", requireDatabase, async (req, res) => {
   if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop)) return res.status(403).json({ ok: false, message: "Invalid shop." });
   if (!/^\d+$/.test(customerId)) return res.status(401).json({ ok: false, message: "Please sign in to view your subscription." });
   try {
-    if (!await ShopifyOfflineToken.exists({ shop })) return res.status(403).json({ ok: false, message: "Store authorization required." });
+    if (!await ShopifyOfflineToken.exists({shop,uninstalledAt:null,accessToken:{$type:"string",$ne:""}})) return res.status(403).json({ ok: false, message: "Store authorization required." });
     const subscriptions = await getCustomerLoopSubscriptions(customerId);
     const enriched = await enrichSubscriptionImages(shop, subscriptions);
     return res.json({ ok: true, mode: "read-only", mutationsEnabled: false, subscriptions: enriched });

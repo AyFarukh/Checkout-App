@@ -1,6 +1,10 @@
 import test,{before,after,beforeEach} from 'node:test';
 import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
+import express from 'express';
+import {createHmac} from 'node:crypto';
+import {ShopifyOfflineToken} from '../src/models/ShopifyOfflineToken.js';
+import {welcomeVerification} from '../src/routes/welcomeVerification.js';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { createLoopActionService } from '../src/services/loop-action-executor.service.js';
 import { LoopActionAttempt } from '../src/models/LoopActionAttempt.js';
@@ -271,4 +275,32 @@ test('order-now previews bind order history even when the subscription date stay
  const [pa,pb]=await Promise.all([service.preview(identity,a),service.preview(identity,b)]);
  await service.execute(identity,{...a,previewToken:pa.previewToken});
  await assert.rejects(service.execute(identity,{...b,previewToken:pb.previewToken}),e=>e.code==='STALE_PREVIEW');assert.equal(provider.writes.length,1);
+});
+
+test('subscription access follows uninstall and reauthorization with retained credential records',async t=>{
+ const originalFetch=globalThis.fetch;
+ t.mock.method(globalThis,'fetch',(url,options)=>String(url).startsWith(`https://${identity.shop}/`)
+  ? Promise.resolve(Response.json({data:{nodes:[],products:{nodes:[]}}})) : originalFetch(url,options));
+ const activeService=createLoopActionService({verificationDelayMs:1});
+ const app=express();app.use(welcomeVerification);
+ const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
+ const read=()=>{
+  const q={shop:identity.shop,logged_in_customer_id:identity.customerId,timestamp:String(Math.floor(Date.now()/1000))};
+  q.signature=createHmac('sha256',process.env.SHOPIFY_API_SECRET).update(Object.keys(q).sort().map(k=>`${k}=${q[k]}`).join('')).digest('hex');
+  return fetch(`http://127.0.0.1:${server.address().port}/subscriptions?`+new URLSearchParams(q));
+ };
+ try{
+  for(const token of [null,''])for(const uninstalledAt of [null,new Date()]){
+   await ShopifyOfflineToken.updateOne({shop:identity.shop},{$set:{accessToken:token,uninstalledAt}},{upsert:true});
+   await assert.rejects(activeService.preview(identity,request('pause',{confirmPause:true})),e=>e.code==='STORE_NOT_AUTHORIZED');
+   assert.equal((await read()).status,403);
+  }
+  await ShopifyOfflineToken.updateOne({shop:identity.shop},{$set:{accessToken:'fixture-only',uninstalledAt:new Date()}});
+  await assert.rejects(activeService.preview(identity,request('pause',{confirmPause:true})),e=>e.code==='STORE_NOT_AUTHORIZED');
+  assert.equal((await read()).status,403);
+  await ShopifyOfflineToken.updateOne({shop:identity.shop},{$set:{accessToken:'fixture-only',uninstalledAt:null}});
+  assert.equal((await activeService.preview(identity,request('pause',{confirmPause:true}))).preview,true);
+  const response=await read();assert.equal(response.status,200);assert.equal((await response.json()).subscriptions.length,1);
+  assert.equal(provider.writes.length,0);
+ }finally{await new Promise(r=>server.close(r));await ShopifyOfflineToken.deleteMany({shop:identity.shop});}
 });

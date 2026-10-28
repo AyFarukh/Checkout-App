@@ -46,7 +46,7 @@ function storedResult(attempt,replayed=false) {
     code:applied?'ACTION_APPLIED':attempt.status==='rejected'?(attempt.errorCode||'LOOP_REJECTED'):'ACTION_OUTCOME_UNKNOWN',
     message:applied?'Your change was verified with Loop.':attempt.status==='rejected'&&attempt.errorCode==='DISCOUNT_TEST_DEFERRED'?'Discount test deferred by the operator after confirming Loop rejection and unchanged discounts. This test has not passed.':addressResolved?'Address test attempt resolved after operator confirmation and an unchanged-address read. No provider rejection or successful address change is claimed.':attempt.status==='rejected'&&attempt.errorCode==='NO_CHANGE'?'Billing and delivery already matched the requested frequency before this attempt and still match. No frequency change is claimed.':attempt.status==='rejected'?'The request was rejected. No verified change was applied.':'The outcome is not confirmed. Do not submit a new request; check this request again.'};
 }
-export function createLoopActionService({installationExists=shop=>ShopifyOfflineToken.exists({shop}),verificationDelayMs=300}={}) {
+export function createLoopActionService({installationExists=shop=>ShopifyOfflineToken.exists({shop,uninstalledAt:null,accessToken:{$type:"string",$ne:""}}),verificationDelayMs=300}={}) {
   async function authorized(bound) {
     if(!await installationExists(bound.shop)) throw actionError('STORE_NOT_AUTHORIZED',403);
     const subscriptions=await getCustomerLoopSubscriptions(bound.customerId,{signal:AbortSignal.timeout(10000)});

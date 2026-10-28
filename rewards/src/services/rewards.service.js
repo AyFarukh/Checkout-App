@@ -58,6 +58,16 @@ export async function applyPointsTransaction(input) {
       await account.save({ session });
 
       const [transaction] = await PointsTransaction.create([{ shop, shopifyCustomerId, type, points: delta, balanceAfter: nextBalance, source, reason, note, createdBy: createdBy || "system", idempotencyKey, shopifyOrderId, rewardId, metadata: metadata || {} }], { session });
+      // Recover points that were spent before a referral refund. Keep the normal
+      // EARN and an explicit recovery entry so balances and the ledger reconcile.
+      const debtRecovery = type === "EARN" ? Math.min(account.referralDebt || 0, Math.max(0, delta)) : 0;
+      if (debtRecovery) {
+        account.pointsBalance -= debtRecovery; account.referralDebt -= debtRecovery;
+        await account.save({ session });
+        await PointsTransaction.create([{ shop, shopifyCustomerId, type: "REFUND", points: -debtRecovery, balanceAfter: account.pointsBalance,
+          source: "REFERRAL_DEBT_RECOVERY", reason: "Previously spent referral points recovered", idempotencyKey: `REFERRAL_DEBT:${transaction._id}`,
+          metadata: { earningTransactionId: String(transaction._id), debtRecovered: debtRecovery } }], { session });
+      }
       result = { customer: account, transaction, duplicate: false };
     });
   } finally { await session.endSession(); }

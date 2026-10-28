@@ -1,12 +1,14 @@
 import crypto from "node:crypto";
 import { Router } from "express";
 import { WebhookEvent } from "../models/WebhookEvent.js";
+import { revokeOfflineTokenForShop } from "../services/shopify-token.service.js";
 
 export const webhookRouter = Router();
 const TOPICS = new Map([
   ["/orders-paid", "orders/paid"],
   ["/refunds-create", "refunds/create"],
   ["/customers-create", "customers/create"],
+  ["/orders-cancelled", "orders/cancelled"],
 ]);
 
 function verifyWebhook(req) {
@@ -24,7 +26,24 @@ webhookRouter.use((req, res, next) => {
   next();
 });
 
-webhookRouter.post(["/orders-paid", "/refunds-create", "/customers-create"], async (req, res, next) => {
+webhookRouter.post("/app-uninstalled", async (req, res, next) => {
+  try {
+    const shop = String(req.get("X-Shopify-Shop-Domain") || "").trim().toLowerCase();
+    const triggeredAt = new Date(req.get("X-Shopify-Triggered-At") || "");
+    let payload;
+    try { payload = JSON.parse(req.body.toString("utf8")); }
+    catch { return res.status(400).send("Invalid JSON payload"); }
+    // HMAC authenticates the body. Bind the unsigned shop header to that body.
+    if (payload?.myshopify_domain !== shop || req.get("X-Shopify-Topic") !== "app/uninstalled" ||
+        !Number.isFinite(triggeredAt.getTime()) || triggeredAt.getTime() > Date.now() + 60_000) {
+      return res.status(400).send("Invalid Shopify uninstall metadata");
+    }
+    await revokeOfflineTokenForShop(shop, triggeredAt);
+    return res.status(200).send("OK");
+  } catch (error) { next(error); }
+});
+
+webhookRouter.post(["/orders-paid", "/refunds-create", "/customers-create", "/orders-cancelled"], async (req, res, next) => {
   try {
     const shop = String(req.get("X-Shopify-Shop-Domain") || "").trim().toLowerCase();
     const webhookId = String(req.get("X-Shopify-Webhook-Id") || "").trim();
