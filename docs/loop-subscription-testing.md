@@ -259,11 +259,15 @@ The subscription branch integrates rewards-admin-v1 commit `4918d0e1777b2c8d28b3
 
 Verified on the combined code: 104 unit tests with local Mongo (no skips), 62 subscription HTTP/Mongo integration tests, 33 fixture browser tests, 2 account widget tests, 7 checkout widget tests, and 44 rewards acceptance tests. Four existing business-event replay checks skip on the empty test database because they require historical EARN, REFUND, committed REDEEM and REVERSAL records. They are not claimed as passing. The browser harness emulates the signed proxy; real Shopify login/proxy acceptance remains outstanding.
 
-User-supplied live evidence covers 10 actions. Discount remains pending, and gift is externally blocked. Loop/client support reported that removing the existing 100% product discount allowed the Shopify discount to be applied; our custom API path still needs its own verified retest.
+User-supplied live evidence now covers 11 actions. Discount SUBTESTING1 passed after removing the conflicting 100% product discount: request `dc15e044-9a21-4b66-89ac-4e932baee12c` returned applied=true, verified=true and replayed=false on execution; status and repeated execution returned the same request with replayed=true. Gift remains externally blocked by Loop's unavailable custom-portal API. These CLI results do not replace real Shopify browser acceptance.
+
+The latest operator inspection shows subscription 42347174 ACTIVE, billing/delivery frequency MONTH/3 and the original product line at quantity 1. The operator explicitly requested leaving it ACTIVE. Do not cancel it as cleanup. Discount restoration is not visible in --inspect and is not claimed as verified.
+
+The retest procedure below is retained for reference: the discount test has already passed. Do not create another request merely to repeat it.
 
 Perform these steps only on authorized subscription 42347174:
 
-1. Privately save its current status, future billing schedule, full discount settings and usage/remaining-cycle counts. The last verified status was CANCELLED. Reactivate it in Loop admin with a future billing date, verify no billing is due now, then remove only the `Test Subscription` 100% product discount. Keep the shipping discount. Do not place an order or run order-now while the product discount is absent.
+1. Privately save its current status, future billing schedule, full discount settings and usage/remaining-cycle counts. Before the successful retest the status was CANCELLED; it has since been reactivated. For any separately authorized future retest, verify a future billing date and no billing due now, then remove only the `Test Subscription` 100% product discount. Keep the shipping discount. Do not place an order or run order-now while the product discount is absent.
 2. In Checkout-App/rewards, update only the discount fixture in the existing private `test/fixtures/loop-live-actions.json` to `"discount": { "value": "SUBTESTING1" }` (or the configured LOOP_LIVE_FIXTURES file). Preserve valid JSON and every other fixture. Do not copy the template over the private fixture.
 3. Keep the existing Mongo database, ledger and state file. Confirm the previous discount attempt is already resolved as DISCOUNT_TEST_DEFERRED before creating a new request. If it remains unknown, stop and reconcile that original attempt; never delete its history or bypass its lock.
 4. Run:
@@ -278,7 +282,20 @@ npm run test:subscriptions:live -- --action discount --execute
 
 The first execute must be applied/verified with replayed=false. Status and repeated execute must be applied/verified with replayed=true and the same request key. Confirm SUBTESTING1 is active in Loop. If the outcome is unknown, preserve that request and run only status; do not begin another request or change the discount set while investigating.
 
-5. Once the result is confirmed, remove SUBTESTING1 and restore the original product-discount eligibility, remaining cycles and shipping settings. Avoid resetting consumed cycles. Restore the saved status (CANCELLED unless a different state was explicitly authorized) and confirm the original product/address/frequency remain intact. Retain test evidence privately. No paid order is required for this discount-action test.
+5. Once the result is confirmed, remove SUBTESTING1 and restore the original product-discount eligibility, remaining cycles and shipping settings. Avoid resetting consumed cycles. Leave the subscription ACTIVE, as explicitly requested by the operator, and confirm the original product/address/frequency remain intact. Do not cancel it as cleanup. Retain test evidence privately. No paid order is required for this discount-action test.
 
 Live execution requires the operator's existing private .env.loop-test, local ledger and Loop credentials; these are not present in the integration workspace. Never upload them, and do not enable production mutations to run this test.
 
+
+## Live unauthenticated smoke checks (2026-10-28)
+
+No credentials, valid customer signature, preview receipt or mutation payload were sent. POST bodies were empty JSON, so these checks cannot form a valid subscription action.
+
+- Fly health: HTTP 200, ok=true.
+- Direct subscription read, action-preview, action-execute, and tampered-signature preview: HTTP 403.
+- Real Shopify proxy signed-out read, action-preview and action-execute: HTTP 401.
+- Direct action-status and action-catalog: HTTP 404. Shopify proxy action-status: HTTP 404.
+
+Seven authentication rejection checks passed. Three missing-route responses are deployment gaps, not passing action tests. The deployed environment does not expose the full merged route set needed for status reconciliation and product catalog selection. Do not enable production mutations to test around this gap.
+
+The browser reached Shopify's email-code step but authentication was not completed. No signed-in customer access, ownership isolation, real dashboard execution or replay is claimed. Full acceptance requires a separate staging app/proxy, unpublished theme and backend/tunnel running the merged branch, plus an authenticated authorized customer. Production Fly configuration and app proxy were not changed.
