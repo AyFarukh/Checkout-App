@@ -16,7 +16,7 @@ test('checkout expands seven eligible discounts and recovers a reserved code aft
  globalThis.fetch=async(url)=>{if(url.endsWith('/me'))return {ok:true,json:async()=>structuredClone(profile)};reservations++;profile.customer.pointsBalance=40;return {ok:true,json:async()=>({redemption:{status:'RESERVED',discountCode:'TEST-ONLY',expiresAt:'2099-01-01'}})};};
  globalThis.shopify.applyDiscountCodeChange=async()=>{if(++applications===1)return {type:'error',message:'Discount could not be added'};globalThis.shopify.discountCodes.value=[{code:'TEST-ONLY'}];return {type:'success'};};
  let root;try{
-  root=await mount();assert.match(root.textContent,/560 points away from \$75 off your next order/);assert.match(root.textContent,/Estimated 74 points/);
+  root=await mount();assert.ok(['fill','auto'].includes(root.querySelector('s-image').getAttribute('inlineSize')),'checkout image sizing must use a supported Shopify value');assert.match(root.textContent,/560 points away from \$75 off your next order/);assert.match(root.textContent,/Estimated 74 points/);
   const tiles=()=>[...root.querySelectorAll('s-clickable')].filter(n=>n.getAttribute('accessibilityLabel')?.startsWith('Redeem '));assert.equal(tiles().length,3);
   await click(find(root,'See all 7 rewards you qualify for'));assert.equal(tiles().length,7);
   await click(find(root,'Show fewer'));assert.equal(tiles().length,3);

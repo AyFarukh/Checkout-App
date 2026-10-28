@@ -82,7 +82,7 @@ export function CheckoutRewards(){
  const active=reservations.filter((r,i,all)=>usableReservation(r)&&all.findIndex(item=>item.discountCode===r.discountCode)===i);
  const isAdded=code=>shopify.discountCodes?appliedCodes.some(item=>item.code?.toLowerCase()===code.toLowerCase()):added===code;
  const header=h('s-grid',{gridTemplateColumns:'auto minmax(0, 1fr) auto',gap:'base',alignItems:'center'},
-  h('s-box',{padding:'base',background:'base',borderRadius:'max'},h('s-image',{src:`${apiBase}/rewards-leaf.svg`,alt:'',inlineSize:'28px'})),
+  h('s-box',{padding:'base',background:'base',borderRadius:'max'},h('s-box',{inlineSize:'28px',blockSize:'28px'},h('s-image',{src:`${apiBase}/rewards-leaf.svg`,alt:'',inlineSize:'fill',aspectRatio:'1/1',objectFit:'contain'}))),
   stack([h('s-heading',null,heading),text(`${model.tier} member`,{color:'subdued'})],{gap:'small'}),
   stack([h('s-heading',null,fmt(model.points)),text('points',{color:'subdued'})],{gap:'small',alignItems:'end'}));
  const tiles=model.visible.map(reward=>h('s-clickable',{key:reward._id,background:'base',border:'base',borderRadius:'large',padding:'base',inlineSize:'100%',disabled:Boolean(busy)||!canUpdate||!checkoutToken,accessibilityLabel:`Redeem ${reward.label} for ${fmt(reward.pointsCost)} points`,onClick:()=>redeem(reward)},
