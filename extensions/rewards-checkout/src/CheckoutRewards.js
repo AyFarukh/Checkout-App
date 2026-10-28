@@ -1,134 +1,107 @@
 import '@shopify/ui-extensions/preact';
-import {createElement as e, render} from 'preact';
-import {useCallback, useEffect, useMemo, useState} from 'preact/hooks';
+import {createElement as h,render} from 'preact';
+import {useCallback,useEffect,useRef,useState} from 'preact/hooks';
+import {checkoutRewardsModel,estimatedPurchasePoints,usableReservation} from './model.mjs';
 
-export default function extension(){render(e(CheckoutRewards),document.body)}
+export default function extension(){render(h(CheckoutRewards),document.body);}
+const text=(value,props={})=>h('s-text',props,value);
+const stack=(children,props={})=>h('s-stack',{direction:'block',gap:'base',...props},...children);
+const fmt=value=>Number(value||0).toLocaleString();
 
-function CheckoutRewards(){
-  const [data,setData]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(''),[applied,setApplied]=useState('');
-  const settings=shopify.settings?.value||{};
-  const apiBase=String(settings.api_base_url||'').replace(/\/$/,'');
-  const heading=settings.heading||'FreeTheRoots Rewards';
-  const checkoutToken=shopify.checkoutToken?.value?.token||shopify.checkoutToken?.value||null;
-
-  const load=useCallback(async()=>{
-    if(!apiBase){setError('Rewards are being configured.');return}
-    try{
-      setError('');
-      const token=await shopify.sessionToken.get();
-      const response=await fetch(`${apiBase}/api/customer/me`,{headers:{Authorization:`Bearer ${token}`}});
-      if(response.status===401||response.status===403){setData({guest:true});return}
-      if(!response.ok)throw new Error('Unable to load rewards right now.');
-      setData(await response.json());
-    }catch(x){setError(x.message||'Unable to load rewards.');}
-  },[apiBase]);
-
-  useEffect(()=>{load()},[load]);
-
-  const active=useMemo(()=>((data?.redemptions||[]).filter(r=>r.status==='RESERVED'&&r.discountCode)),[data]);
-  const points=Number(data?.customer?.pointsBalance||0);
-  const rewards=data?.rewards||[];
-  const affordable=rewards.filter(r=>points>=Number(r.pointsCost||0));
-  const nextReward=useMemo(()=>rewards
-    .filter(r=>Number(r.pointsCost||0)>points)
-    .sort((a,b)=>Number(a.pointsCost||0)-Number(b.pointsCost||0))[0],[rewards,points]);
-
-  async function applyCode(code){
-    const canUpdate=shopify.instructions?.value?.discounts?.canUpdateDiscountCodes;
-    if(canUpdate===false)throw new Error('Discount codes cannot be updated in this checkout.');
-    const result=await shopify.applyDiscountCodeChange({type:'addDiscountCode',code});
-    if(result?.type==='error')throw new Error(result.message||'The reward code could not be applied.');
-    setApplied(code);
+export function CheckoutRewards(){
+ const settings=shopify.settings?.value||{},apiBase=String(settings.api_base_url||'').replace(/\/$/,''),heading=settings.heading||'FreeTheRoots Rewards';
+ const buyerId=shopify.buyerIdentity?.customer?.value?.id||'',checkoutToken=shopify.checkoutToken?.value?.token||shopify.checkoutToken?.value||null;
+ const identity=`${apiBase}:${buyerId}:${checkoutToken||''}`,identityRef=useRef(identity);identityRef.current=identity;
+ const [profile,setProfile]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(''),[added,setAdded]=useState(''),[expanded,setExpanded]=useState(false),[issued,setIssued]=useState(null);
+ const pending=useRef(new Map()),lock=useRef(false);
+ const data=profile?.identity===identity?profile.data:null;
+ const subtotal=shopify.cost?.subtotalAmount?.value;
+ const canUpdate=shopify.instructions?.value?.discounts?.canUpdateDiscountCodes!==false;
+ const appliedCodes=shopify.discountCodes?.value||[];
+ const load=useCallback(async()=>{
+  if(!apiBase)return null;
+  try{
+   const token=await shopify.sessionToken.get(),response=await fetch(`${apiBase}/api/customer/me`,{headers:{Authorization:`Bearer ${token}`}});
+   if(identityRef.current!==identity)return null;
+   if(response.status===401||response.status===403){setProfile({identity,data:{guest:true}});return null;}
+   if(!response.ok)throw new Error('Unable to load rewards right now.');
+   const result=await response.json();if(identityRef.current!==identity)return null;
+   setProfile({identity,data:result});
+   setIssued(current=>{
+    if(current?.identity!==identity)return current;
+    const reference=current.reservation.publicReference||String(current.reservation._id||'');
+    const found=(result.redemptions||[]).some(item=>reference?reference===(item.publicReference||String(item._id||'')):current.reservation.discountCode&&item.discountCode===current.reservation.discountCode);
+    return found?null:current;
+   });return result;
+  }catch(error){if(identityRef.current===identity)setError(error.message||'Unable to load rewards.');return null;}
+ },[apiBase,identity]);
+ useEffect(()=>{setError('');setAdded('');setExpanded(false);setIssued(null);pending.current.clear();lock.current=false;setBusy('');load();return()=>{if(identityRef.current===identity)identityRef.current='';};},[load,identity]);
+ async function applyCode(code){
+  if(shopify.instructions?.value?.discounts?.canUpdateDiscountCodes===false)throw new Error('Discount codes cannot be updated in this checkout.');
+  const result=await shopify.applyDiscountCodeChange({type:'addDiscountCode',code});
+  if(identityRef.current!==identity)return;
+  if(result?.type==='error')throw new Error(result.message||'The reward code could not be added.');
+  setAdded(code);
+ }
+ async function redeem(reward){
+  if(lock.current||!checkoutToken||shopify.instructions?.value?.discounts?.canUpdateDiscountCodes===false)return;lock.current=true;setBusy(reward._id);setError('');
+  let reservation;
+  try{
+   if(!pending.current.has(reward._id))pending.current.set(reward._id,`checkout:${checkoutToken}:${buyerId}:${reward._id}`);
+   const token=await shopify.sessionToken.get();if(identityRef.current!==identity)return;
+   const response=await fetch(`${apiBase}/api/customer/redemptions/reserve`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json','Idempotency-Key':pending.current.get(reward._id)},body:JSON.stringify({rewardId:reward._id,cartId:checkoutToken||undefined})});
+   const result=await response.json();if(identityRef.current!==identity)return;
+   if(!response.ok)throw new Error(result.error?.message||result.error||'Reward could not be redeemed.');
+   reservation=result.redemption;
+   if(reservation?.status==='RESERVED')setIssued({identity,reservation});
+   if(!usableReservation(reservation)){
+    const reference=reservation?.publicReference||reservation?._id;
+    if(reference&&['RELEASED','CANCELLED','COMMITTED','REFUNDED'].includes(reservation?.status))pending.current.set(reward._id,`checkout:${checkoutToken}:${buyerId}:${reward._id}:retry:${reference}`);
+    throw new Error(reservation?.expiresAt&&Date.parse(reservation.expiresAt)<=Date.now()?'This reward reservation has expired. Refresh your rewards and try again.':reservation?.status==='RESERVED'?'Your reward is still being prepared. Please try again shortly.':'The previous reward attempt is no longer available. Please try again.');
+   }
+   // Keep the code recoverable even if applying it or refreshing the wallet fails.
+   setIssued({identity,reservation});pending.current.delete(reward._id);
+   await applyCode(reservation.discountCode);
+  }catch(error){if(identityRef.current===identity)setError(error.message||'Reward could not be applied.');}
+  finally{
+   if(identityRef.current===identity){await load();if(identityRef.current===identity){lock.current=false;setBusy('');}}
   }
-
-  async function redeem(reward){
-    try{
-      setBusy(reward._id);setError('');
-      const token=await shopify.sessionToken.get();
-      const response=await fetch(`${apiBase}/api/customer/redemptions/reserve`,{
-        method:'POST',
-        headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json','Idempotency-Key':`checkout:${checkoutToken||'unknown'}:${reward._id}`},
-        body:JSON.stringify({rewardId:reward._id,cartId:checkoutToken||undefined})
-      });
-      const result=await response.json();
-      if(!response.ok)throw new Error(result?.error?.message||result?.error||'Reward could not be redeemed.');
-      const code=result?.redemption?.discountCode;
-      if(!code)throw new Error('Reward was reserved but no discount code was returned.');
-      await applyCode(code);
-      await load();
-    }catch(x){setError(x.message||'Reward could not be applied.');}
-    finally{setBusy('');}
-  }
-
-  async function applyExisting(code){
-    try{setBusy(code);setError('');await applyCode(code)}
-    catch(x){setError(x.message||'Reward could not be applied.')}
-    finally{setBusy('')}
-  }
-
-  if(!apiBase)return e('s-banner',{tone:'warning'},'Checkout rewards are being configured.');
-  if(!data&&!error)return e('s-box',{padding:'base',border:'base'},
-    e('s-stack',{direction:'block',gap:'small'},e('s-heading',null,heading),e('s-spinner'))
-  );
-  if(data?.guest)return e('s-box',{padding:'base',border:'base'},
-    e('s-stack',{direction:'block',gap:'small'},
-      e('s-heading',null,heading),
-      e('s-text',null,'Sign in to use your reward points at checkout.')
-    )
-  );
-  if(error&&!data)return e('s-banner',{tone:'critical'},error);
-
-  return e('s-box',{padding:'base',border:'base'},
-    e('s-stack',{direction:'block',gap:'base'},
-      e('s-stack',{direction:'block',gap:'small'},
-        e('s-heading',null,heading),
-        e('s-text',{emphasis:'bold'},`${points.toLocaleString()} points available`),
-        nextReward?e('s-text',{tone:'subdued'},`${(Number(nextReward.pointsCost||0)-points).toLocaleString()} more points until ${nextReward.name}.`):
-          rewards.length?e('s-text',{tone:'subdued'},'You can unlock any reward below.'):null
-      ),
-
-      error?e('s-banner',{tone:'critical'},error):null,
-      applied?e('s-banner',{tone:'success'},`Reward applied successfully: ${applied}`):null,
-
-      active.length?e('s-stack',{direction:'block',gap:'small'},
-        e('s-heading',null,'Reserved reward'),
-        e('s-text',{tone:'subdued'},'You already redeemed a reward. Apply it to this checkout before choosing another.'),
-        ...active.map(r=>e('s-box',{key:r._id,padding:'base',border:'base'},
-          e('s-stack',{direction:'block',gap:'small'},
-            e('s-text',{emphasis:'bold'},r.discountCode),
-            e('s-button',{variant:'primary',disabled:Boolean(busy),loading:busy===r.discountCode,onClick:()=>applyExisting(r.discountCode)},'Apply reserved reward')
-          )
-        ))
-      ):null,
-
-      !active.length&&rewards.length?e('s-stack',{direction:'block',gap:'small'},
-        e('s-heading',null,'Choose a reward'),
-        e('s-text',{tone:'subdued'},affordable.length?
-          `${affordable.length} reward${affordable.length===1?' is':'s are'} available with your current balance.`:
-          'Keep earning points to unlock a reward.'),
-        ...rewards.map(r=>{
-          const cost=Number(r.pointsCost||0);
-          const eligible=points>=cost;
-          const remaining=Math.max(0,cost-points);
-          return e('s-box',{key:r._id,padding:'base',border:'base'},
-            e('s-stack',{direction:'block',gap:'small'},
-              e('s-heading',null,r.name),
-              r.description?e('s-text',{tone:'subdued'},r.description):null,
-              e('s-text',{emphasis:'bold'},`${cost.toLocaleString()} points`),
-              !eligible?e('s-text',{tone:'subdued'},`You need ${remaining.toLocaleString()} more points.`):null,
-              e('s-button',{
-                variant:eligible?'primary':'secondary',
-                disabled:!eligible||Boolean(busy),
-                loading:busy===r._id,
-                onClick:()=>redeem(r)
-              },eligible?'Redeem & apply':'Keep earning')
-            )
-          )
-        })
-      ):null,
-
-      !rewards.length&&!active.length?e('s-text',{tone:'subdued'},'No rewards are currently available.'):null,
-      e('s-text',{tone:'subdued'},'Only one reward can be used per order.')
-    )
-  );
+ }
+ async function applyExisting(code){
+  if(lock.current||!canUpdate)return;lock.current=true;setBusy(code);setError('');
+  try{await applyCode(code);}catch(error){if(identityRef.current===identity)setError(error.message||'Reward could not be applied.');}
+  finally{if(identityRef.current===identity){lock.current=false;setBusy('');}}
+ }
+ const shell=children=>h('s-box',{padding:'large',background:'subdued',border:'base',borderRadius:'large'},stack(children,{gap:'large'}));
+ if(!apiBase)return shell([h('s-heading',null,heading),text('Checkout rewards are being configured.')]);
+ if(!data)return shell([h('s-heading',null,heading),error?h('s-banner',{tone:'critical'},error):h('s-spinner',{accessibilityLabel:'Loading rewards'}),error?h('s-button',{onClick:()=>{setError('');load();}},'Try again'):null]);
+ if(data.guest)return shell([h('s-heading',null,heading),text('Sign in to use your reward points at checkout.')]);
+ const model=checkoutRewardsModel(data,expanded),estimate=estimatedPurchasePoints(data.rules,subtotal,data.currencyCode);
+ const reservations=[...(data.redemptions||[]),...(issued?.identity===identity?[issued.reservation]:[])];
+ const preparing=reservations.some(r=>r.status==='RESERVED'&&!r.discountCode&&(!r.expiresAt||Date.parse(r.expiresAt)>Date.now()));
+ const active=reservations.filter((r,i,all)=>usableReservation(r)&&all.findIndex(item=>item.discountCode===r.discountCode)===i);
+ const isAdded=code=>shopify.discountCodes?appliedCodes.some(item=>item.code?.toLowerCase()===code.toLowerCase()):added===code;
+ const header=h('s-grid',{gridTemplateColumns:'auto minmax(0, 1fr) auto',gap:'base',alignItems:'center'},
+  h('s-box',{padding:'base',background:'base',borderRadius:'max'},h('s-image',{src:`${apiBase}/rewards-leaf.svg`,alt:'',inlineSize:'28px'})),
+  stack([h('s-heading',null,heading),text(`${model.tier} member`,{color:'subdued'})],{gap:'small'}),
+  stack([h('s-heading',null,fmt(model.points)),text('points',{color:'subdued'})],{gap:'small',alignItems:'end'}));
+ const tiles=model.visible.map(reward=>h('s-clickable',{key:reward._id,background:'base',border:'base',borderRadius:'large',padding:'base',inlineSize:'100%',disabled:Boolean(busy)||!canUpdate||!checkoutToken,accessibilityLabel:`Redeem ${reward.label} for ${fmt(reward.pointsCost)} points`,onClick:()=>redeem(reward)},
+  stack([h('s-heading',null,reward.label),text(`${fmt(reward.pointsCost)} pts`,{color:'subdued'})],{gap:'small',alignItems:'center'})));
+ return shell([
+  header,h('s-divider'),
+  model.next?text([text(`${fmt(model.next.pointsCost-model.points)} points`,{type:'strong',tone:'success'}),text(` away from ${model.next.label}${/\boff$/i.test(model.next.label)?' your next order':'.'}`)]):null,
+  error?h('s-banner',{tone:'critical'},error):null,
+  !checkoutToken?text('Rewards are not ready for this checkout. Please refresh checkout.',{color:'subdued'}):null,
+  !canUpdate?text('Rewards cannot be changed in this checkout.',{color:'subdued'}):null,
+  added&&isAdded(added)?h('s-banner',{tone:'success'},'Reward code added to checkout.'):null,
+  preparing?stack([h('s-heading',null,'Preparing your reward'),text('Your points are reserved while your discount code is prepared.'),h('s-button',{disabled:Boolean(busy),onClick:()=>{setError('');load();}},'Check again')],{gap:'small'}):active.length?stack([h('s-heading',null,'Your reserved reward'),...active.map(reservation=>h('s-box',{key:reservation.discountCode,padding:'base',background:'base',border:'base',borderRadius:'base'},stack([
+   text(reservation.discountCode,{type:'strong'}),h('s-button',{variant:'primary',disabled:Boolean(busy)||!canUpdate||isAdded(reservation.discountCode),loading:busy===reservation.discountCode,onClick:()=>applyExisting(reservation.discountCode)},isAdded(reservation.discountCode)?'Added to checkout':'Apply reserved reward')
+  ],{gap:'small'})))],{gap:'base'}):
+   stack([h('s-heading',null,'Redeem points on this order'),
+    tiles.length?h('s-grid',{gridTemplateColumns:'repeat(3, minmax(0, 1fr))',gap:'base'},...tiles):text('Keep earning points to unlock an order discount.',{color:'subdued'}),
+    model.eligible.length>3?h('s-clickable',{disabled:Boolean(busy),inlineSize:'100%',paddingBlock:'small',accessibilityLabel:expanded?'Show fewer rewards':`See all ${model.eligible.length} rewards you qualify for`,onClick:()=>setExpanded(!expanded)},
+     h('s-stack',{direction:'inline',gap:'small',alignItems:'center',justifyContent:'center'},text(expanded?'Show fewer':`See all ${model.eligible.length} rewards you qualify for`,{tone:'success',type:'strong'}),h('s-icon',{type:expanded?'chevron-up':'chevron-down',tone:'success'}))):null
+   ],{gap:'base'}),
+  text(estimate==null?'Points are calculated after your order is paid.':`Estimated ${fmt(estimate)} points with this order`,{tone:'success'}),
+ ]);
 }

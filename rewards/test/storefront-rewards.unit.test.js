@@ -8,9 +8,11 @@ import {Reward} from '../src/models/Reward.js';
 import {EarningRule} from '../src/models/EarningRule.js';
 import {PointsTransaction} from '../src/models/PointsTransaction.js';
 import {Redemption} from '../src/models/Redemption.js';
+import {shopCurrencyCode} from '../src/services/shop-currency.service.js';
 import {signed} from '../src/routes/welcomeVerification.js';
 
 test('custom rewards page requires signed storefront requests and signed customer identity', async t=>{
+ await shopCurrencyCode('example.myshopify.com',async()=>({shop:{currencyCode:'USD'}}));
  const queries=[];
  t.mock.method(RewardCustomer,'findOne',filter=>{queries.push(filter);return {lean:async()=>({firstName:'Signed customer',pointsBalance:123})};});
  for(const model of [Reward,EarningRule,PointsTransaction,Redemption])t.mock.method(model,'find',filter=>{queries.push(filter);const query={sort:()=>query,select:()=>query,limit:()=>query,lean:async()=>[]};return query;});
@@ -27,7 +29,7 @@ test('custom rewards page requires signed storefront requests and signed custome
   for(const asset of assets){const response=await fetch(base+'/assets/'+asset+'?'+query());assert.equal(response.status,200,'required page asset must be served: '+asset);assert.ok((await response.arrayBuffer()).byteLength>0);}
   assert.equal((await fetch(base+'/api/me?'+query())).status,401);
   const profile=await fetch(base+'/api/me?'+query('101'));assert.equal(profile.status,200);
-  const result=await profile.json();assert.equal(result.customer.pointsBalance,123);assert.equal(result.storefrontRewardsUrl,'https://example.myshopify.com/apps/ftr-welcome/rewards');
+  const result=await profile.json();assert.equal(result.customer.pointsBalance,123);assert.equal(result.currencyCode,'USD');assert.equal(result.storefrontRewardsUrl,'https://example.myshopify.com/apps/ftr-welcome/rewards');
   assert.ok(queries.length>=5);assert.ok(queries.every(q=>q.shop==='example.myshopify.com'));assert.ok(queries.filter(q=>q.shopifyCustomerId).every(q=>q.shopifyCustomerId==='gid://shopify/Customer/101'));
   assert.match(profile.headers.get('cache-control'),/no-store/);
   const forged=query('101');forged.set('logged_in_customer_id','202');assert.equal((await fetch(base+'/api/me?'+forged)).status,403);

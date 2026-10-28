@@ -7,7 +7,8 @@
     "build": "shopify app build",
     "deploy": "shopify app deploy",
     "info": "shopify app info",
-    "test:account-ui": "node --test extensions/rewards-account/test/*.test.mjs"
+    "test:account-ui": "node --test extensions/rewards-account/test/*.test.mjs",
+    "test:checkout-ui": "node --test extensions/rewards-checkout/test/*.test.mjs"
   },
   "dependencies": {
     "@preact/signals": "latest",

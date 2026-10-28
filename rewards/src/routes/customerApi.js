@@ -7,6 +7,7 @@ import { Reward } from "../models/Reward.js";
 import { EarningRule } from "../models/EarningRule.js";
 import { Redemption } from "../models/Redemption.js";
 import { reserveRedemption, releaseRedemption } from "../services/redemption.service.js";
+import { shopCurrencyCode } from "../services/shop-currency.service.js";
 import { referralCustomer } from "./referralCustomer.js";
 
 export const customerRewards = Router();
@@ -46,6 +47,7 @@ customerRewards.get("/me", async (req, res, next) => {
       }
     }
     res.json({
+      currencyCode: await shopCurrencyCode(shop),
       storefrontRewardsUrl: `https://${shop}/apps/ftr-welcome/rewards`,
       customer: resolvedCustomer,
       rewards,
