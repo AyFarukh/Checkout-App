@@ -5,7 +5,8 @@ export { signed };
 import { requireDatabase } from "../config/db.js";
 import { ShopifyOfflineToken } from "../models/ShopifyOfflineToken.js";
 import { shopifyAdminGraphql } from "../services/shopify-admin.service.js";
-import { getCustomerLoopSubscriptions } from "../services/loop-subscriptions.service.js";
+import { getCustomerLoopSubscriptions, loopMutationsEnabled } from "../services/loop-subscriptions.service.js";
+import { assertLoopMerchantShop } from "../services/loop-customer-read.service.js";
 import { enrichSubscriptionImages } from "../services/subscription-images.service.js";
 import { referralProxy } from "./referralCustomer.js";
 
@@ -86,9 +87,12 @@ welcomeVerification.get("/subscriptions", requireDatabase, async (req, res) => {
   if (!/^\d+$/.test(customerId)) return res.status(401).json({ ok: false, message: "Please sign in to view your subscription." });
   try {
     if (!await ShopifyOfflineToken.exists({shop,uninstalledAt:null,accessToken:{$type:"string",$ne:""}})) return res.status(403).json({ ok: false, message: "Store authorization required." });
+    assertLoopMerchantShop(shop);
     const subscriptions = await getCustomerLoopSubscriptions(customerId);
     const enriched = await enrichSubscriptionImages(shop, subscriptions);
-    return res.json({ ok: true, mode: "read-only", mutationsEnabled: false, subscriptions: enriched });
+    const mutationsEnabled = loopMutationsEnabled() && shop === process.env.LOOP_TEST_SHOP && customerId === process.env.LOOP_TEST_CUSTOMER_ID;
+    return res.json({ ok: true, mode: mutationsEnabled ? "test-only" : "read-only", mutationsEnabled,
+      subscriptions: enriched.map(subscription => ({...subscription,mutationAllowed:mutationsEnabled && String(subscription.id)==="42347174" && String(subscription.id)===process.env.LOOP_TEST_SUBSCRIPTION_ID})) });
   } catch (error) {
     console.error("[Storefront subscriptions]", error.message);
     return res.status(503).json({ ok: false, message: "Subscription details are temporarily unavailable." });

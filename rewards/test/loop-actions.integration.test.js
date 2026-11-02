@@ -280,7 +280,8 @@ test('order-now previews bind order history even when the subscription date stay
 test('subscription access follows uninstall and reauthorization with retained credential records',async t=>{
  const originalFetch=globalThis.fetch;
  t.mock.method(globalThis,'fetch',(url,options)=>String(url).startsWith(`https://${identity.shop}/`)
-  ? Promise.resolve(Response.json({data:{nodes:[],products:{nodes:[]}}})) : originalFetch(url,options));
+  ? Promise.resolve(Response.json({data:{nodes:[],products:{nodes:[]}}}))
+  : originalFetch(String(url).replace('https://api.loopsubscriptions.com/admin/2026-04',provider.url),options));
  const activeService=createLoopActionService({verificationDelayMs:1});
  const app=express();app.use(welcomeVerification);
  const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
@@ -300,7 +301,41 @@ test('subscription access follows uninstall and reauthorization with retained cr
   assert.equal((await read()).status,403);
   await ShopifyOfflineToken.updateOne({shop:identity.shop},{$set:{accessToken:'fixture-only',uninstalledAt:null}});
   assert.equal((await activeService.preview(identity,request('pause',{confirmPause:true}))).preview,true);
-  const response=await read();assert.equal(response.status,200);assert.equal((await response.json()).subscriptions.length,1);
+  const response=await read();assert.equal(response.status,200);const data=await response.json();assert.equal(data.subscriptions.length,1);
+  assert.equal(data.mutationsEnabled,true);assert.equal(data.subscriptions[0].mutationAllowed,true);
+  const localUrl=process.env.LOOP_ADMIN_API_URL;process.env.NODE_ENV='production';process.env.LOOP_ADMIN_API_URL='https://api.loopsubscriptions.com/admin/2026-04';
+  try{const production=await (await read()).json();assert.equal(production.mutationsEnabled,false);assert.equal(production.subscriptions[0].mutationAllowed,false);}
+  finally{process.env.NODE_ENV='test';process.env.LOOP_ADMIN_API_URL=localUrl;}
   assert.equal(provider.writes.length,0);
  }finally{await new Promise(r=>server.close(r));await ShopifyOfflineToken.deleteMany({shop:identity.shop});}
+});
+
+// Read-only customer order views must work outside the mutation test allowlist.
+for(const kind of ['schedule','history'])test(`customer ${kind} view returns safe owned order fields without provider writes`,async()=>{
+ const {createLoopCustomerReadService}=await import('../src/services/loop-customer-read.service.js');
+ const reader=createLoopCustomerReadService({installationExists:async()=>true});
+ provider.subscription.id=42347175;
+ if(kind==='history')provider.history=[{id:21,status:'PROCESSED',financialStatus:'paid',shopifyOrderNumber:1001,billingDate:'2027-01-14T10:00:00Z',note:'private note',shippingAddress:{address1:'private address'},nextActionUrl:'https://private.invalid/secret'}];
+ const result=await reader.orders(identity,{subscriptionId:'42347175',kind});
+ assert.equal(result.ok,true);assert.equal(result.subscriptionId,'42347175');assert.equal(result.orders.length,1);
+ assert.equal(result.orders[0].status,kind==='schedule'?'UNPROCESSED':'PROCESSED');
+ assert.doesNotMatch(JSON.stringify(result),/private address|private note|private.invalid|nextActionUrl/);
+ assert.equal(provider.writes.length,0);
+});
+test('customer order reads reject foreign identities, invalid IDs and unsupported kinds',async()=>{
+ const {createLoopCustomerReadService}=await import('../src/services/loop-customer-read.service.js');
+ const reader=createLoopCustomerReadService({installationExists:async()=>true});
+ for(const body of [{subscriptionId:'42347174/../1',kind:'history'},{subscriptionId:'42347174',kind:'placeOrder'}])await assert.rejects(reader.orders(identity,body));
+ await assert.rejects(reader.orders({...identity,customerId:'456'},{subscriptionId:'42347174',kind:'history'}),e=>e.code==='SUBSCRIPTION_NOT_OWNED');
+ provider.owned=false;await assert.rejects(reader.orders(identity,{subscriptionId:'42347174',kind:'history'}),e=>e.code==='SUBSCRIPTION_NOT_OWNED');
+ const inactive=createLoopCustomerReadService({installationExists:async()=>false});await assert.rejects(inactive.orders(identity,{subscriptionId:'42347174',kind:'history'}),e=>e.code==='STORE_NOT_AUTHORIZED');
+ assert.equal(provider.writes.length,0);
+});
+
+test('customer order reads reject another installed merchant even with the same numeric customer ID',async()=>{
+ const {createLoopCustomerReadService}=await import('../src/services/loop-customer-read.service.js');
+ const reader=createLoopCustomerReadService({installationExists:async()=>true});
+ delete provider.subscription.metaData;
+ await assert.rejects(reader.orders({...identity,shop:'other.myshopify.com'},{subscriptionId:'42347174',kind:'history'}),e=>e.code==='STORE_NOT_AUTHORIZED');
+ assert.equal(provider.writes.length,0);
 });

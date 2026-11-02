@@ -20,7 +20,7 @@ app.get('/health',(_req,res)=>res.json({ok:true}));
 app.get('/',(_req,res)=>res.type('html').send('<link rel="stylesheet" href="/dashboard.css"><section class="ftr-sub" id="ftr-subscription-dashboard-test" data-endpoint="/apps/ftr-welcome/subscriptions"><main class="ftr-sub__main"><div class="ftr-sub__loading"></div></main></section><script src="/dashboard.js"></script>'));
 app.get('/dashboard.js',(_req,res)=>res.sendFile(assets.js));
 app.get('/dashboard.css',(_req,res)=>res.sendFile(assets.css));
-app.get('/apps/ftr-welcome/subscriptions',(_req,res)=>res.json({ok:true,subscriptions:[provider.subscription]}));
+app.get('/apps/ftr-welcome/subscriptions',(_req,res)=>res.json({ok:true,mutationsEnabled:true,subscriptions:[{...provider.subscription,mutationAllowed:true}]}));
 app.use('/apps/ftr-welcome/subscriptions',(req,_res,next)=>{
  const url=new URL(req.url,'http://fixture');
  const q={shop:'test.myshopify.com',logged_in_customer_id:'123',timestamp:String(Math.floor(Date.now()/1000))};

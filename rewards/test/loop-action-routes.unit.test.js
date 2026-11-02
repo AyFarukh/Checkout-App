@@ -32,3 +32,17 @@ test('provider errors are sanitized before returning to the browser',async()=>{
  const q={shop:'test.myshopify.com',logged_in_customer_id:'123',timestamp:String(Math.floor(Date.now()/1000))};q.signature=createHmac('sha256','fixture-secret').update(Object.keys(q).sort().map(k=>`${k}=${q[k]}`).join('')).digest('hex');
  try{const r=await fetch(`http://127.0.0.1:${server.address().port}/action-execute?`+new URLSearchParams(q),{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});assert.equal(r.status,503);assert.doesNotMatch(await r.text(),/secret-token|customer-email/);}finally{await new Promise(r=>server.close(r));}
 });
+
+test('read-only order route requires signed customer identity and ignores spoofed body identities',async()=>{
+ process.env.SHOPIFY_API_SECRET='fixture-secret';const calls=[];
+ const app=express();app.use(express.json());app.use(createSubscriptionActionRouter({readService:{orders:async(identity,body)=>{calls.push({identity,body});return {ok:true,subscriptionId:body.subscriptionId,orders:[]};}}}));
+ const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));const base=`http://127.0.0.1:${server.address().port}/order-list`;
+ const body=JSON.stringify({subscriptionId:'42347174',kind:'history',customerId:'456',shop:'foreign.myshopify.com'});
+ const options={method:'POST',headers:{'Content-Type':'application/json'},body};
+ try{
+  assert.equal((await fetch(base,options)).status,403);assert.equal(calls.length,0);
+  const q={shop:'test.myshopify.com',logged_in_customer_id:'123',timestamp:String(Math.floor(Date.now()/1000))};q.signature=createHmac('sha256','fixture-secret').update(Object.keys(q).sort().map(k=>`${k}=${q[k]}`).join('')).digest('hex');
+  const r=await fetch(base+'?'+new URLSearchParams(q),options);assert.equal(r.status,200);assert.equal(r.headers.get('cache-control'),'private, no-store');assert.equal((await r.json()).orders.length,0);
+  assert.deepEqual(calls[0].identity,{shop:'test.myshopify.com',customerId:'123'});
+ }finally{await new Promise(r=>server.close(r));}
+});
