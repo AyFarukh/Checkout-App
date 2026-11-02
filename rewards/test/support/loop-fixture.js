@@ -13,7 +13,7 @@ export async function startLoopFixture() {
   const path=new URL(req.url,'http://fixture').pathname;
   let data;
   if(req.method==='GET'){
-   if(path.endsWith('/product'))data=[{title:'Test catalog',productVariants:[{shopifyId:101,title:'New product',hasSellingPlan:true}]}];
+   if(path.endsWith('/product'))data=[{title:'Test catalog',productVariants:[{shopifyId:101,title:'New product',hasSellingPlan:true},{shopifyId:202,title:'One-time product',hasSellingPlan:false}]}];
    else if(path.includes('/customer/'))data=fixture.owned?[fixture.subscription]:[];
    else if(path.endsWith('/order/history'))data=fixture.history;
    else if(path.endsWith('/order/schedule'))data=fixture.omitSkipped?fixture.schedule.filter(o=>o.status!=='SKIPPED'):fixture.schedule;
@@ -32,6 +32,7 @@ export async function startLoopFixture() {
     else if(path.endsWith('/line/7/update'))s.lineItems[0].quantity=b.quantity;
     else if(path.endsWith('/line/7/swap'))s.lineItems[0]={...s.lineItems[0],variantShopifyId:b.variantShopifyId,quantity:b.quantity};
     else if(path.endsWith('/line/7')&&req.method==='DELETE')s.lineItems=s.lineItems.filter(l=>l.id!==7);
+    else if(path.endsWith('/line/once')&&req.method==='POST')s.lineItems.push({id:8,variantShopifyId:b.variantShopifyId,quantity:b.quantity,isOneTimeAdded:true});
     else if(path.endsWith('/line')&&req.method==='POST')s.lineItems.push({id:8,variantShopifyId:b.variantShopifyId,quantity:b.quantity});
     else if(path.endsWith('/address'))s.shippingAddress=b;
     else if(path.endsWith('/discount'))s.discounts.push({node:{code:b.discountCode}});

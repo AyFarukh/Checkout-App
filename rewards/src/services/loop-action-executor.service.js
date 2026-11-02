@@ -73,13 +73,14 @@ export function createLoopActionService({installationExists=shop=>ShopifyOffline
   }
   async function catalog(identity,body) {
     const bound=scope(identity,body?.subscriptionId);await authorized(bound);
+    const oneTime=body?.purchaseType==='one-time';
     const products=[];let cursor='';
     for(let page=0;page<5;page++) {
-      const query=new URLSearchParams({type:'SUBSCRIPTION',pageSize:'100',...(cursor?{afterCursor:cursor}:{})});
+      const query=new URLSearchParams({type:oneTime?'ALL':'SUBSCRIPTION',pageSize:'100',...(cursor?{afterCursor:cursor}:{})});
       const result=await loopAdminRequest('product?'+query);
       if(!Array.isArray(result.data))throw actionError('INVALID_LOOP_PRODUCT_RESPONSE',502);
       for(const product of result.data)for(const variant of product.productVariants||[])
-        if(variant.hasSellingPlan)products.push({id:String(variant.shopifyId),title:product.title+' / '+variant.title});
+        if(oneTime||variant.hasSellingPlan)products.push({id:String(variant.shopifyId),title:product.title+' / '+variant.title});
       if(!result.pageInfo?.hasNextPage)break;
       const next=result.pageInfo.nextCursor;if(!next||next===cursor)throw actionError('INVALID_LOOP_PAGINATION',502);cursor=next;
     }
@@ -87,7 +88,7 @@ export function createLoopActionService({installationExists=shop=>ShopifyOffline
   }
   async function validateVariant(identity,bound) {
     if(bound.action==='edit-products'&&bound.payload.variantShopifyId) {
-      const result=await catalog(identity,{subscriptionId:bound.subscriptionId});
+      const result=await catalog(identity,{subscriptionId:bound.subscriptionId,...(bound.payload.operation==='add-once'?{purchaseType:'one-time'}:{})});
       if(!result.products.some(v=>v.id===bound.payload.variantShopifyId))throw actionError('VARIANT_NOT_ELIGIBLE',400);
     }
   }

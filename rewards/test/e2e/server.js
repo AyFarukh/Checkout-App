@@ -17,7 +17,7 @@ const provider=await startLoopFixture();
 Object.assign(process.env,{NODE_ENV:'test',LOOP_ALLOW_LOCAL_TEST_API:'true',LOOP_ADMIN_API_URL:provider.url,LOOP_ADMIN_REQUEST_HEADERS_JSON:'{"X-Loop-Token":"fixture-only"}',LOOP_TEST_SHOP:'test.myshopify.com',LOOP_TEST_CUSTOMER_ID:'123',LOOP_TEST_SUBSCRIPTION_ID:'42347174',LOOP_BILLING_TIMEZONE:'America/New_York',SHOPIFY_API_SECRET:'fixture-secret',LOOP_TEST_MUTATIONS_ENABLED:'true'});
 const app=express();app.use(express.json());
 app.get('/health',(_req,res)=>res.json({ok:true}));
-app.get('/',(_req,res)=>res.type('html').send('<link rel="stylesheet" href="/dashboard.css"><section class="ftr-sub" id="ftr-subscription-dashboard-test" data-endpoint="/apps/ftr-welcome/subscriptions"><main class="ftr-sub__main"><div class="ftr-sub__loading"></div></main></section><script src="/dashboard.js"></script>'));
+app.get('/',(_req,res)=>res.type('html').send('<link rel="stylesheet" href="/dashboard.css"><section class="ftr-sub" id="ftr-subscription-dashboard-test" data-endpoint="/apps/ftr-welcome/subscriptions"><main class="ftr-sub__main"><div class="ftr-sub__loading"></div></main><template data-subscription-recommendations><article class="ftr-sub__rec" data-variants="[{&quot;id&quot;:&quot;202&quot;,&quot;title&quot;:&quot;One-time product&quot;}]"><h3>One-time product</h3><button type="button" data-add-once>Add</button></article></template></section><script src="/dashboard.js"></script>'));
 app.get('/dashboard.js',(_req,res)=>res.sendFile(assets.js));
 app.get('/dashboard.css',(_req,res)=>res.sendFile(assets.css));
 app.get('/apps/ftr-welcome/subscriptions',(_req,res)=>res.json({ok:true,mutationsEnabled:true,subscriptions:[{...provider.subscription,mutationAllowed:true}]}));

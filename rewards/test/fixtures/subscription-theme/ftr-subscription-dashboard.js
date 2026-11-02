@@ -1,5 +1,5 @@
-(()=>{'use strict';const root=document.querySelector('[id^="ftr-subscription-dashboard-"]');if(!root||!root.querySelector('.ftr-sub__loading'))return;const main=root.querySelector('.ftr-sub__main'),endpoint=root.dataset.endpoint;const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=String(text);return n};const add=(parent,...children)=>{for(const child of children)if(child)parent.append(child);return parent};const pick=(o,...keys)=>keys.map(k=>o?.[k]).find(v=>v!==undefined&&v!==null&&v!=='');const number=v=>{if(v==null||v==='')return null;if(typeof v==='object')return number(pick(v,'amount','value','price','total'));const n=Number(String(v).replace(/[^0-9.-]/g,''));return Number.isFinite(n)?n:null};const money=(v,c)=>v==null?'Price unavailable':new Intl.NumberFormat('en-US',{style:'currency',currency:c||'USD'}).format(v);const date=v=>{if(v===null||v===undefined||v==='')return'Not scheduled';const raw=String(v);const d=(typeof v==='number'||/^\d{10,13}$/.test(raw))?new Date(Number(v)*(Number(v)<1e12?1000:1)):new Date(v);return Number.isNaN(d.getTime())?'Not scheduled':d.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric',timeZone:'UTC'})};const img=v=>typeof v==='string'?v:pick(v,'url','src','originalSrc')||'';const lines=s=>[s.lines,s.lineItems,s.subscriptionLines,s.items,s.products,s.subscriptionProducts].find(Array.isArray)||[];const card=(title,id)=>{const n=el('section','ftr-sub__card');if(id)n.id=id;if(title)add(n,el('h2','',title));return n};const btn=(label,primary=false,action=label)=>{const b=el('button','ftr-sub__btn'+(primary?' ftr-sub__btn--primary':''),label);b.type='button';if(mutationAccess===false&&actionMap[action]&&actionMap[action]!=='gift'){b.disabled=true;b.title='Subscription changes are currently disabled.';}b.addEventListener('click',()=>confirmAction(action));return b};let selectedSubscription=null,mutationAccess=false;
-const actionMap={"Manage next order":"reschedule","Order now":"order-now","Skip":"skip","Skip next order":"skip","Reschedule":"reschedule","Change next order":"reschedule","Delay":"delay","Change frequency":"frequency","Pause subscription":"pause","Cancel subscription":"cancel","Edit products":"edit-products","Edit subscription":"edit-products","Edit address":"edit-address","Gift":"gift","Order notes":"order-note","Discount code":"discount"};
+(()=>{'use strict';const root=document.querySelector('[id^="ftr-subscription-dashboard-"]');if(!root||!root.querySelector('.ftr-sub__loading'))return;const main=root.querySelector('.ftr-sub__main'),endpoint=root.dataset.endpoint;const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=String(text);return n};const add=(parent,...children)=>{for(const child of children)if(child)parent.append(child);return parent};const pick=(o,...keys)=>keys.map(k=>o?.[k]).find(v=>v!==undefined&&v!==null&&v!=='');const number=v=>{if(v==null||v==='')return null;if(typeof v==='object')return number(pick(v,'amount','value','price','total'));const n=Number(String(v).replace(/[^0-9.-]/g,''));return Number.isFinite(n)?n:null};const money=(v,c)=>v==null?'Price unavailable':new Intl.NumberFormat('en-US',{style:'currency',currency:c||'USD'}).format(v);const date=v=>{if(v===null||v===undefined||v==='')return'Not scheduled';const raw=String(v);const d=(typeof v==='number'||/^\d{10,13}$/.test(raw))?new Date(Number(v)*(Number(v)<1e12?1000:1)):new Date(v);return Number.isNaN(d.getTime())?'Not scheduled':d.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric',timeZone:'UTC'})};const img=v=>typeof v==='string'?v:pick(v,'url','src','originalSrc')||'';const lines=s=>[s.lines,s.lineItems,s.subscriptionLines,s.items,s.products,s.subscriptionProducts].find(Array.isArray)||[];const card=(title,id)=>{const n=el('section','ftr-sub__card');if(id)n.id=id;if(title){const h=el('h2','',title),name=({'Your subscription':'box','Payment details':'card','Shipping address':'truck'})[title];if(name)h.prepend(icon(name));add(n,h);}return n};const btn=(label,primary=false,action=label)=>{const b=el('button','ftr-sub__btn'+(primary?' ftr-sub__btn--primary':''),label);b.type='button';const symbol=({'Order now':'cart','Gift':'gift','Skip':'skip','Skip next order':'skip','Reschedule':'calendar','Delay':'clock'})[label];if(symbol)b.prepend(icon(symbol));if(mutationAccess===false&&actionMap[action]&&actionMap[action]!=='gift'){b.disabled=true;b.title='Subscription changes are currently disabled.';}b.addEventListener('click',()=>confirmAction(action));return b};let selectedSubscription=null,mutationAccess=false;
+const actionMap={"Add one-time product":"edit-products","Manage next order":"reschedule","Order now":"order-now","Skip":"skip","Skip next order":"skip","Reschedule":"reschedule","Change next order":"reschedule","Delay":"delay","Change frequency":"frequency","Pause subscription":"pause","Cancel subscription":"cancel","Edit products":"edit-products","Edit subscription":"edit-products","Edit address":"edit-address","Gift":"gift","Order notes":"order-note","Discount code":"discount"};
 const pendingStorageKey=()=>`ftr-subscription-pending:${selectedSubscription?.id}`;
 let pending=null;
 function pendingRead(){try{return JSON.parse(localStorage.getItem(pendingStorageKey())||'null')}catch{return null}}
@@ -9,7 +9,7 @@ async function actionRequest(path,body){
  if(!(response.headers.get('content-type')||'').includes('application/json'))throw Error('Unexpected subscription service response. Check the status before submitting again.');
  const result=await response.json();return {response,result};
 }
-function confirmAction(label){
+function confirmAction(label,oneTimeProduct){
  const action=actionMap[label],trigger=document.activeElement;
  const selectors=[...root.querySelectorAll('[data-subscription-selector]')];for(const selector of selectors)selector.disabled=true;
  const backdrop=el('div','ftr-sub__dialog'),panel=el('div','ftr-sub__dialog-panel');
@@ -43,7 +43,12 @@ function confirmAction(label){
   field('intervalCount','Every','select',[[1,'1'],[2,'2'],[3,'3'],[4,'4'],[6,'6']],selectedSubscription.billingPolicy?.intervalCount||1);
   field('interval','Period','select',[['MONTH','Months'],['WEEK','Weeks']],selectedSubscription.billingPolicy?.interval||'MONTH');
  }
- if(action==='edit-products'){
+ if(action==='edit-products'&&oneTimeProduct){
+  const operation=field('operation','Purchase type','hidden',undefined,'add-once');operation.parentElement.hidden=true;
+  field('variantShopifyId','New product','select',oneTimeProduct.variants.map(v=>[v.id,v.title]),oneTimeProduct.variants[0].id);
+  const quantity=field('quantity','Quantity','number',undefined,1);quantity.min='1';quantity.max='99';quantity.step='1';
+ }
+ if(action==='edit-products'&&!oneTimeProduct){
   field('operation','Product change','select',[['quantity','Change quantity'],['add','Add a product'],['swap','Swap a product'],['remove','Remove a product']],'quantity');
   const items=lines(selectedSubscription);
   field('lineId','Product','select',items.map(l=>[String(l.id),(l.productTitle||l.title||'Product')+' (current quantity '+l.quantity+')']),String(items[0]?.id||''));
@@ -66,12 +71,12 @@ function confirmAction(label){
  }
  if(action==='discount')field('value','Discount code','text',undefined,'');
  if(action==='order-note')field('value','Order note','textarea',undefined,(Object.prototype.hasOwnProperty.call(selectedSubscription,'orderNote')?selectedSubscription.orderNote:selectedSubscription.note)||'',false);
- const note=el('p','ftr-sub__muted',action==='order-now'?'This places an order immediately and may charge your saved payment method.':action==='cancel'?'Cancellation stops future orders. Review carefully before confirming.':action==='pause'?'Pause until you resume through Loop.':action==='edit-products'?'Add, swap, remove a product or change its quantity. Loop sets the selling plan price. Bundles require Loop’s editor.':'Review your details. Changes are only available for the authorized test subscription.');
+ const note=el('p','ftr-sub__muted',action==='order-now'?'This places an order immediately and may charge your saved payment method.':action==='cancel'?'Cancellation stops future orders. Review carefully before confirming.':action==='pause'?'Pause until you resume through Loop.':oneTimeProduct?'Add this product to your next order only. It will not repeat in future orders. Loop sets the product price.':action==='edit-products'?'Add, swap, remove a product or change its quantity. Loop sets the selling plan price. Bundles require Loop’s editor.':'Review your details. Changes are only available for the authorized test subscription.');
  add(actions,cancel,review,confirm,check);add(form,status);add(panel,el('h2','',label),note,form,actions);add(backdrop,panel);add(document.body,backdrop);
  function keys(e){
   if(e.key==='Escape'){e.preventDefault();close();}
   if(e.key==='Tab'){
-   const focusable=[...panel.querySelectorAll('input,select,textarea,button')].filter(n=>!n.hidden&&!n.disabled),first=focusable[0],last=focusable.at(-1);
+   const focusable=[...panel.querySelectorAll('input,select,textarea,button')].filter(n=>!n.hidden&&!n.disabled&&n.type!=='hidden'&&!n.closest('[hidden]')&&n.getClientRects().length>0),first=focusable[0],last=focusable.at(-1);
    if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}
   }
  }
@@ -81,7 +86,7 @@ function confirmAction(label){
  function rejected(result){
   pendingWrite(null);requestKey=crypto.randomUUID();
   for(const input of Object.values(inputs))input.disabled=false;
-  if(action==='edit-products'){
+  if(action==='edit-products'&&!oneTimeProduct){
    const op=inputs.operation.value;inputs.lineId.disabled=op==='add';inputs.quantity.disabled=op==='remove';inputs.variantShopifyId.disabled=!['add','swap'].includes(op);
   }
   check.hidden=true;invalidate();if(!mutationAccess){review.hidden=true;for(const input of Object.values(inputs))input.disabled=true;}resultMessage(result);
@@ -130,7 +135,19 @@ function confirmAction(label){
  else if(!action){review.hidden=true;status.textContent='Manage this option through your Shopify account or the Loop customer portal.';}
 }
 
-function btnClose(t,fn){const b=el('button','ftr-sub__btn ftr-sub__btn--primary',t);b.type='button';b.addEventListener('click',fn);return b}function link(label,href,primary=false){const a=el('a','ftr-sub__btn'+(primary?' ftr-sub__btn--primary':''),label);a.href=href;return a;}
+function btnClose(t,fn){const b=el('button','ftr-sub__btn ftr-sub__btn--primary',t);b.type='button';b.addEventListener('click',fn);return b}
+function icon(name){
+ const paths={home:['M3 11 12 3l9 8','M5 10v11h5v-7h4v7h5V10'],refresh:['M20 7V3l-3 3a8 8 0 0 0-13 4','M4 17v4l3-3a8 8 0 0 0 13-4','M4 10V6h4','M20 14v4h-4'],cart:['M3 3h2l3 12h11l2-9H6','M9 20h.01M18 20h.01'],gift:['M3 8h18v4H3z','M5 12v9h14v-9','M12 8v13','M12 8H8a3 3 0 1 1 3-4l1 4Zm0 0h4a3 3 0 1 0-3-4l-1 4Z'],skip:['m4 5 4 4 8 10h4','m17 16 3 3-3 3','M4 19h4l8-14h4','m17 2 3 3-3 3'],calendar:['M4 5h16v16H4z','M8 2v6M16 2v6M4 10h16','m9 16 2 2 4-4'],clock:['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18','M12 7v5l3 2'],box:['m3 7 9-5 9 5v10l-9 5-9-5Z','m3 7 9 5 9-5M12 12v10M7 4.8l9 5'],note:['M5 3h14v18H5z','m8 15 7-7 2 2-7 7H8Z'],tag:['M9 3H3v6l11 12 7-7Z','M7 7h.01'],card:['M3 5h18v14H3z','M3 9h18M7 15h3'],truck:['M2 5h12v12H2z','M14 10h4l4 4v3h-8','M7 19a2 2 0 1 0-4 0 2 2 0 0 0 4 0ZM21 19a2 2 0 1 0-4 0 2 2 0 0 0 4 0Z'],pin:['M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z','M15 10a3 3 0 1 0-6 0 3 3 0 0 0 6 0Z'],check:['M21 12a9 9 0 1 0-18 0 9 9 0 0 0 18 0Z','m8 12 3 3 5-6'],pause:['M21 12a9 9 0 1 0-18 0 9 9 0 0 0 18 0Z','M9 8v8M15 8v8'],cancel:['M21 12a9 9 0 1 0-18 0 9 9 0 0 0 18 0Z','m9 9 6 6M15 9l-6 6'],edit:['m14 3 7 7-4 4-7-7Z','m11 12-8 8 1-5 5-5','m4 3 4 4-3 3-4-4Z'],arrow:['M4 12h16','m15 7 5 5-5 5'],chevron:['m9 5 7 7-7 7'],help:['M21 12a9 9 0 1 0-18 0 9 9 0 0 0 18 0Z','M9 8a3 3 0 0 1 6 0c0 2-3 2-3 5M12 17h.01'],user:['M21 12a9 9 0 1 0-18 0 9 9 0 0 0 18 0Z','M15 9a3 3 0 1 0-6 0 3 3 0 0 0 6 0Z','M6 19v-2c0-4 12-4 12 0v2'],phone:['M7 3 3 5c0 8 8 16 16 16l2-4-5-3-2 2-6-6 2-2Z']};
+ const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('class','ftr-sub__icon');svg.setAttribute('aria-hidden','true');svg.setAttribute('fill','none');svg.setAttribute('stroke','currentColor');svg.setAttribute('stroke-width','1.5');svg.setAttribute('stroke-linecap','round');svg.setAttribute('stroke-linejoin','round');
+ for(const d of paths[name]||paths.box){const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',d);svg.append(path);}return svg;
+}
+function paymentAccountLink(href){const a=link('Update payment method',href,true);a.setAttribute('aria-label','Manage payment methods in account');return a;}
+function detailRow(label,value,action,iconName,testId){
+ const row=el('div','ftr-sub__detail-row'),title=el('span','ftr-sub__row-label'),text=el('span','ftr-sub__row-value',value);if(testId)text.dataset.testid=testId;
+ add(title,icon(iconName),el('span','',label));const edit=btn('Edit',false,action);edit.setAttribute('aria-label',action);add(edit,icon('chevron'));add(row,title,text,edit);return row;
+}
+
+function link(label,href,primary=false){const a=el('a','ftr-sub__btn'+(primary?' ftr-sub__btn--primary':''),label);a.href=href;return a;}
 function orderView(subscriptionId,kind){
  const details=el('details','ftr-sub__order-view'),summary=el('summary','',kind==='schedule'?'Scheduled orders':'Past orders'),body=el('div','ftr-sub__order-body');
  body.setAttribute('data-testid','subscription-'+kind);add(details,summary,body);let loaded=false,loading=false;
@@ -157,11 +174,13 @@ function orderView(subscriptionId,kind){
  }
  details.addEventListener('toggle',()=>{if(details.open)load();});return details;
 }
+function identityPlaceholder(id){const n=el('div');n.id='ftr-subscription-list';return n;}
 function show(data,preferredId=selectedSubscription?.id){
  const subscriptions=(Array.isArray(data.subscriptions)?data.subscriptions:[]).filter(s=>s&&s.id!=null).slice().sort((a,b)=>(String(b.status).toUpperCase()==='ACTIVE')-(String(a.status).toUpperCase()==='ACTIVE'));
  const s=subscriptions.find(item=>String(item.id)===String(preferredId))||subscriptions[0];
  main.replaceChildren();selectedSubscription=s||null;pending=null;
  const accountUrl=root.dataset.accountUrl||'/account';
+ for(const node of root.querySelectorAll('[data-icon]'))if(!node.querySelector('svg'))node.prepend(icon(node.dataset.icon));
  const top=el('div','ftr-sub__topbar');add(top,link('Back to account',accountUrl),el('span','ftr-sub__muted','Subscription dashboard'));add(main,top);
  if(!s){add(main,card('No subscriptions found'));return;}
  mutationAccess=data.mutationsEnabled===true&&s.mutationAllowed===true;
@@ -173,9 +192,9 @@ function show(data,preferredId=selectedSubscription?.id){
   add(b,el('span','ftr-sub__badge',status),el('strong','',`Subscription #${item.id}`),el('span','ftr-sub__subscription-summary',names.slice(0,2).join(' · ')+(names.length>2?` +${names.length-2} more`:'')),el('span','ftr-sub__muted','Next order: '+date(item.nextOrderDateEpoch??item.nextBillingDateEpoch??pick(item,'nextBillingDate','nextOrderDate'))));
   b.addEventListener('click',()=>{show(data,item.id);[...root.querySelectorAll('[data-subscription-selector]')].find(node=>node.dataset.subscriptionId===String(item.id))?.focus();});add(choices,b);
  }
- add(chooser,choices);add(main,chooser);
+ add(chooser,choices);if(subscriptions.length>1)add(main,chooser);else add(main,identityPlaceholder(s.id));
  const identity=el('p','ftr-sub__subscription-id',`Subscription #${s.id}`);identity.setAttribute('data-testid','selected-subscription-id');
- const intro=el('header','ftr-sub__intro');add(intro,identity,el('h1','','Your subscription is '+String(s.status||'unknown').toLowerCase()),el('p','','Manage your products, schedule and delivery details.'));add(main,intro);
+ const intro=el('header','ftr-sub__intro');add(intro,identity,el('h1','','Your subscription is '+String(s.status||'unknown').toLowerCase()),el('p','','Manage your products, schedule and delivery details.'));intro.querySelector('h1').append(icon(String(s.status).toUpperCase()==='ACTIVE'?'check':'pause'));add(main,intro);
  pending=pendingRead();if(pending){
   const warning=el('div','ftr-sub__notice'),checkPending=el('button','ftr-sub__btn','Check pending change');checkPending.type='button';
   checkPending.addEventListener('click',()=>confirmAction(Object.entries(actionMap).find(([,action])=>action===pending.action)?.[0]||'Previous change'));
@@ -187,41 +206,43 @@ function show(data,preferredId=selectedSubscription?.id){
  const total=number(pick(s,'totalLineItemDiscountedPrice','totalLineItemPrice','totalPrice','subtotalPrice','price','billingAmount','nextOrderTotal','nextBillingAmount'))??number(pick(s.nextOrder,'total','totalPrice','amount'))??(items.length&&items.every(l=>lp(l)!=null)?items.reduce((n,l)=>n+lp(l)*Number(l.quantity||1),0):null);
  const next=s.nextOrderDateEpoch??s.nextBillingDateEpoch??pick(s,'nextBillingDate','nextBillingAt','nextOrderDate','nextOrderAt','billingDate','nextOrderScheduledAt','nextChargeDate','nextOrderDateTime')??pick(s.nextOrder,'date','scheduledAt','billingDate');
  const nextCard=card('Next order','ftr-next'),grid=el('div','ftr-sub__next-grid'),info=el('div');
- add(info,el('div','ftr-sub__next-date',date(next)),el('p','ftr-sub__next-total',money(total,currency)),el('p','ftr-sub__muted','Products total · Delivery and taxes may be calculated separately'));
+ const timing=el('div','ftr-sub__next-info'),calendar=el('span','ftr-sub__calendar'),timingText=el('div');add(calendar,icon('calendar'));add(timingText,el('div','ftr-sub__next-date',date(next)),el('p','ftr-sub__next-total',money(total,currency)));add(timing,calendar,timingText);add(info,timing);
  const ul=el('ul','ftr-sub__products');for(const item of items)add(ul,el('li','',(pick(item,'productTitle','title','name')||'Subscription product')+' × '+(item.quantity||1)));add(info,ul);
  const hero=el('div','ftr-sub__hero'),first=items.map(l=>img(pick(l,'imageUrl','image','productImage','variantImage'))).find(Boolean);
  if(first){const image=el('img');image.src=first;image.alt='Subscription products';image.loading='lazy';add(hero,image);}else add(hero,el('span','ftr-sub__muted','Your subscription products'));
  add(grid,info,hero);add(nextCard,grid);const actions=el('div','ftr-sub__actions');
  for(const [label,primary]of [['Manage next order',true],['Order now'],['Gift'],['Skip'],['Reschedule'],['Delay']])add(actions,btn(label,primary));
- add(nextCard,actions,el('p','ftr-sub__muted','Gift orders are unavailable in this custom dashboard because Loop does not provide a gift-order API.'));add(main,nextCard);
- const columns=el('div','ftr-sub__columns'),sub=card('Your products','ftr-subscription');
+ let chargeNotice;const lastCharge=pick(s,'lastOrderDate','lastBillingDate','lastChargedAt');if(lastCharge){const notice=el('p','ftr-sub__notice','Your last order was charged on '+date(lastCharge)+'.');notice.prepend(icon('clock'));chargeNotice=notice;}
+ add(nextCard,actions,chargeNotice,el('p','ftr-sub__muted','Gift orders are unavailable in this custom dashboard because Loop does not provide a gift-order API.'));add(main,nextCard);
+ const columns=el('div','ftr-sub__columns'),sub=card('Your subscription','ftr-subscription');
  for(const item of items){
   const row=el('div','ftr-sub__product'),imageUrl=img(pick(item,'imageUrl','image','productImage','variantImage'));
   if(imageUrl){const image=el('img');image.src=imageUrl;image.loading='lazy';image.alt='';add(row,image);}else add(row,el('div','ftr-sub__product-placeholder'));
-  const detail=el('div');add(detail,el('h3','',pick(item,'productTitle','title','name')||'Subscription product'),el('p','',money(lp(item),currency)+' · Quantity '+(item.quantity||1)));add(row,detail);add(sub,row);
+  const detail=el('div');add(detail,el('h3','',pick(item,'productTitle','title','name')||'Subscription product'),el('p','',money(lp(item),currency)+' · Quantity '+(item.quantity||1)));if(item.isOneTimeAdded===true)add(detail,el('p','ftr-sub__badge','One-time · Next order only'));add(row,detail);add(sub,row);
  }
  add(sub,el('p','ftr-sub__muted','Delivery every '+(freq.intervalCount||freq.interval_count||1)+' '+String(freq.interval||'month').toLowerCase()),btn('Edit subscription'));
  const note=Object.prototype.hasOwnProperty.call(s,'orderNote')?s.orderNote:s.note;
- const notes=el('div','ftr-sub__detail-block'),noteText=el('p','',note||'No order note added.');noteText.dataset.testid='subscription-note';
- add(notes,el('h3','','Order note'),noteText,btn('Order notes'));add(sub,notes);
- const discounts=el('div','ftr-sub__detail-block'),discountText=el('p','',(s.discounts||[]).map(d=>d?.node||d).filter(d=>d&&d.isActive!==false&&!d.rejectionReason).map(d=>pick(d,'title','code','discountCode')||'Subscription discount').join(', ')||'No active discounts.');discountText.dataset.testid='subscription-discounts';
- add(discounts,el('h3','','Discounts'),discountText,btn('Discount code'));add(sub,discounts);
+ const discounts=(s.discounts||[]).map(d=>d?.node||d).filter(d=>d&&d.isActive!==false&&!d.rejectionReason).map(d=>pick(d,'title','code','discountCode')||'Subscription discount').join(', ');
+ add(sub,detailRow('Order notes',note||'Add your note.','Order notes','note','subscription-note'),detailRow('Discount code',discounts||'No active discounts.','Discount code','tag','subscription-discounts'),detailRow('Subscription plan','Deliver every '+(freq.intervalCount||1)+' '+String(freq.interval||'month').toLowerCase(),'Change frequency','calendar'));
+ const orders=el('div','ftr-sub__orders');orders.id='ftr-orders';add(orders,orderView(s.id,'schedule'),orderView(s.id,'history'),link('View all orders in account',accountUrl));add(sub,orders);
  const side=el('div','ftr-sub__stack'),shipping=card('Shipping address','ftr-address');
  const fullName=[address.firstName,address.lastName].filter(Boolean).join(' '),city=[address.city,address.province||address.provinceCode,address.zip].filter(Boolean).join(', ');
  add(shipping,el('p','ftr-sub__address',[fullName,address.company,address.address1,address.address2,city,address.country||address.countryCode].filter(Boolean).join('\n')||'No shipping address available.'),btn('Edit address'));
- const payment=card('Payment methods','ftr-payment');add(payment,el('p','ftr-sub__muted','Manage saved payment methods securely in your account portal.'),link('Manage payment methods in account',accountUrl,true));
- add(side,shipping,payment);add(columns,sub,side);add(main,columns);
- const orders=card('Your orders','ftr-orders');add(orders,orderView(s.id,'schedule'),orderView(s.id,'history'),link('View all orders in account',accountUrl));add(main,orders);
+ const payment=card('Payment details','ftr-payment');payment.classList.add('ftr-sub__payment');add(payment,el('p','ftr-sub__muted','Manage saved payment methods securely in your account portal.'),paymentAccountLink(accountUrl));
+ add(payment,link('Add a backup payment method',accountUrl));add(side,payment,shipping);add(columns,sub,side);add(main,columns);
+
  const template=root.querySelector('[data-subscription-recommendations]');
  if(template?.content?.children.length){
   const recommended=template.content.cloneNode(true),existing=new Set(items.map(l=>String(l.variantShopifyId||l.variantId||l.shopifyVariantId||'')));
   for(const product of recommended.querySelectorAll('[data-variant-ids]')){try{if(JSON.parse(product.dataset.variantIds).some(id=>existing.has(String(id))))product.remove();}catch{product.remove();}}
-  if(recommended.children.length){const rec=card('Complete your routine'),products=el('div','ftr-sub__recommend');add(products,recommended);add(rec,el('p','ftr-sub__muted','Explore more products for your routine.'),products);add(main,rec);}
+  for(const tile of [...recommended.children].slice(5))tile.remove();
+  for(const product of recommended.querySelectorAll('[data-add-once]')){const tile=product.closest('[data-variants]');let variants=[];try{variants=JSON.parse(tile.dataset.variants).filter(v=>/^\d+$/.test(String(v.id)));}catch{}if(!variants.length){product.disabled=true;continue;}const title=tile.querySelector('h3')?.textContent||'Product';product.setAttribute('aria-label','Add '+title+' once');product.disabled=!mutationAccess;product.addEventListener('click',()=>confirmAction('Add one-time product',{variants}));}
+  if(recommended.children.length){const rec=card('Complete your routine'),products=el('div','ftr-sub__recommend');add(products,recommended);add(rec,el('p','ftr-sub__muted','Goes well with your next order. Add once, without changing future orders.'),link('See more products',root.dataset.shopUrl||'/collections/all'),products);add(main,rec);}
  }
- const manage=card('Manage your subscription'),mg=el('div','ftr-sub__manage');
- for(const [icon,label,description]of [['◇','Edit products','Add, swap or update quantities'],['↻','Change frequency','Choose your delivery interval'],['▣','Change next order','Select another billing date'],['⊗','Skip next order','Skip one upcoming delivery'],['Ⅱ','Pause subscription','Take a break from deliveries'],['⊗','Cancel subscription','Stop future subscription orders']]){
+ const manage=card('Manage your subscription');add(manage,el('p','ftr-sub__muted','Need to make a change? You are in control.'));const mg=el('div','ftr-sub__manage');
+ for(const [symbol,label,description]of [['edit','Edit products','Change what you receive'],['refresh','Change frequency','Choose how often'],['calendar','Change next order','Pick another date'],['cancel','Skip next order','Skip without cancelling'],['pause','Pause subscription','Take a temporary break'],['cancel','Cancel subscription','End your subscription']]){
   const b=el('button',label.startsWith('Cancel')?'ftr-sub__danger':'');b.type='button';b.setAttribute('aria-label',label);b.disabled=!mutationAccess;
-  add(b,el('span','ftr-sub__manage-icon',icon),el('strong','',label),el('small','',description));b.addEventListener('click',()=>confirmAction(label));add(mg,b);
+  const symbolWrap=el('span','ftr-sub__manage-icon');add(symbolWrap,icon(symbol));add(b,symbolWrap,el('strong','',label),el('small','',description));b.addEventListener('click',()=>confirmAction(label));add(mg,b);
  }
  add(manage,mg);add(main,manage);
 }

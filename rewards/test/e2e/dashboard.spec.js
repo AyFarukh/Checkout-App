@@ -10,9 +10,9 @@ async function setup(page,{unknown=false,rejected=false,subscriptions,mutationsE
  const calls=[];let orderReads=0;
  await page.route('http://localhost:4124/**',async route=>{
   const path=new URL(route.request().url()).pathname;
-  if(path==='/dashboard.js')return route.fulfill({contentType:'text/javascript',body:await readFile(assets.js,'utf8')});
-  if(path==='/dashboard.css')return route.fulfill({contentType:'text/css',body:await readFile(assets.css,'utf8')});
-  if(path==='/')return route.fulfill({contentType:'text/html',body:'<link rel="stylesheet" href="/dashboard.css"><section class="ftr-sub" data-account-url="/account" data-shop-url="/collections/all" id="ftr-subscription-dashboard-test" data-endpoint="/apps/ftr-welcome/subscriptions"><main class="ftr-sub__main"><div class="ftr-sub__loading"></div></main><template data-subscription-recommendations>'+recommendations+'</template></section><script src="/dashboard.js"></script>'});
+  if(path==='/dashboard.js')return route.fulfill({contentType:'text/javascript; charset=utf-8',body:await readFile(assets.js,'utf8')});
+  if(path==='/dashboard.css')return route.fulfill({contentType:'text/css; charset=utf-8',body:await readFile(assets.css,'utf8')});
+  if(path==='/')return route.fulfill({contentType:'text/html; charset=utf-8',body:'<link rel="stylesheet" href="/dashboard.css"><section class="ftr-sub" data-account-url="/account" data-shop-url="/collections/all" id="ftr-subscription-dashboard-test" data-endpoint="/apps/ftr-welcome/subscriptions"><main class="ftr-sub__main"><div class="ftr-sub__loading"></div></main><template data-subscription-recommendations>'+recommendations+'</template></section><script src="/dashboard.js"></script>'});
   const body=route.request().method()==='POST'?route.request().postDataJSON():null;
   if(body)calls.push({path,body});
   if(path.endsWith('order-list')){orderReads++;if(orderError&&orderReads===1)return route.fulfill({status:503,json:{ok:false,code:'SUBSCRIPTION_SERVICE_UNAVAILABLE'}});return route.fulfill({json:{ok:true,subscriptionId:body.subscriptionId,kind:body.kind,orders:[{id:'21',status:body.kind==='schedule'?'UNPROCESSED':'PROCESSED',billingDate:'2027-01-14T10:00:00Z',shopifyOrderNumber:'1001'}]}});}
@@ -185,4 +185,25 @@ for(const [name,options] of [
  ['string subscription capability',{subscriptions:[{...baseSubscription(),mutationAllowed:'true'}]}]
 ])test(name+' cannot grant mutation access',async({page})=>{
  const calls=await setup(page,options);await expect(page.getByRole('button',{name:'Skip next order',exact:true})).toBeDisabled();expect(calls).toHaveLength(0);
+});
+
+test('routine Add reviews a one-time variant and quantity without a product-page redirect',async({page})=>{
+ const calls=await setup(page,{recommendations:'<article class="ftr-sub__rec" data-product-id="11" data-variants="[{&quot;id&quot;:&quot;101&quot;,&quot;title&quot;:&quot;Mist / Small&quot;},{&quot;id&quot;:&quot;102&quot;,&quot;title&quot;:&quot;Mist / Large&quot;}]"><h3>Aloe mist</h3><button type="button" data-add-once>Add</button></article>'});
+ await page.getByRole('button',{name:'Add Aloe mist once',exact:true}).click();const d=page.getByRole('dialog');
+ await expect(d).toContainText('next order only');await d.getByLabel('New product',{exact:true}).selectOption('102');await d.getByLabel('Quantity',{exact:true}).fill('2');
+ await d.getByRole('button',{name:'Review change'}).click();expect(calls.find(c=>c.path.endsWith('action-preview')).body.payload).toEqual({operation:'add-once',variantShopifyId:'102',quantity:2});
+ expect(calls.filter(c=>c.path.endsWith('action-execute'))).toHaveLength(0);await d.getByRole('button',{name:'Confirm change'}).click();expect(calls.filter(c=>c.path.endsWith('action-execute'))).toHaveLength(1);
+});
+
+test('one-time dialog keyboard cycles through visible controls only',async({page})=>{
+ await setup(page,{recommendations:'<article class="ftr-sub__rec" data-variants="[{&quot;id&quot;:&quot;202&quot;,&quot;title&quot;:&quot;Mist&quot;}]"><h3>Mist</h3><button type="button" data-add-once>Add</button></article>'});
+ await page.getByRole('button',{name:'Add Mist once'}).click();const d=page.getByRole('dialog');
+ await d.getByRole('button',{name:'Review change'}).focus();await page.keyboard.press('Tab');await expect(d.getByLabel('New product',{exact:true})).toBeFocused();
+ await page.keyboard.press('Shift+Tab');await expect(d.getByRole('button',{name:'Review change'})).toBeFocused();
+});
+
+test('read-only routine add stays disabled and existing one-time lines are clearly labelled',async({page})=>{
+ const sub=baseSubscription();sub.lineItems.push({id:8,variantShopifyId:202,quantity:1,isOneTimeAdded:true});
+ const calls=await setup(page,{mutationsEnabled:false,subscriptions:[sub],recommendations:'<article class="ftr-sub__rec" data-variants="[{&quot;id&quot;:&quot;303&quot;,&quot;title&quot;:&quot;Mist&quot;}]"><h3>Mist</h3><button type="button" data-add-once>Add</button></article>'});
+ await expect(page.getByRole('button',{name:'Add Mist once'})).toBeDisabled();await expect(page.getByText('One-time · Next order only',{exact:true})).toBeVisible();expect(calls).toHaveLength(0);
 });

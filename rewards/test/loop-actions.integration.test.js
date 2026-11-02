@@ -339,3 +339,26 @@ test('customer order reads reject another installed merchant even with the same 
  await assert.rejects(reader.orders({...identity,shop:'other.myshopify.com'},{subscriptionId:'42347174',kind:'history'}),e=>e.code==='STORE_NOT_AUTHORIZED');
  assert.equal(provider.writes.length,0);
 });
+
+for(const uncertain of [false,true])test(`one-time add verifies next-order-only line and durable replay, uncertain=${uncertain}`,async()=>{
+ const payload={operation:'add-once',variantShopifyId:'202',quantity:2},b=request('edit-products',payload),p=await service.preview(identity,b);
+ provider.ambiguousFailure=uncertain;
+ const result=await service.execute(identity,{...b,previewToken:p.previewToken});
+ if(uncertain)assert.equal(result.code,'ACTION_OUTCOME_UNKNOWN');else assert.equal(result.verified,true);
+ const status=await service.status(identity,b);assert.equal(status.verified,true);
+ assert.equal((await service.execute(identity,{...b,previewToken:p.previewToken})).replayed,true);
+ assert.equal(provider.writes.length,1);assert.equal(provider.writes[0].path.endsWith('/line/once'),true);
+ assert.deepEqual(provider.writes[0].body,{variantShopifyId:202,quantity:2,discountType:'NONE',discountValue:0,isUpsell:true});
+ assert.equal(provider.subscription.lineItems[0].quantity,1);assert.equal(provider.subscription.lineItems[1].isOneTimeAdded,true);
+});
+test('one-time product catalog accepts non-selling-plan products without accepting arbitrary variants or discounts',async()=>{
+ const catalog=await service.catalog(identity,{subscriptionId:'42347174',purchaseType:'one-time'});assert.ok(catalog.products.some(p=>p.id==='202'));
+ assert.equal((await service.catalog(identity,{subscriptionId:'42347174'})).products.some(p=>p.id==='202'),false);
+ for(const payload of [{operation:'add-once',variantShopifyId:'999',quantity:1},{operation:'add-once',variantShopifyId:'202',quantity:1,discountValue:100}])await assert.rejects(service.preview(identity,request('edit-products',payload)));
+ assert.equal(provider.writes.length,0);
+});
+test('one-time add with unchanged read-back stays unknown and does not redispatch',async()=>{
+ provider.noStateChange=true;const b=request('edit-products',{operation:'add-once',variantShopifyId:'202',quantity:1}),p=await service.preview(identity,b);
+ assert.equal((await service.execute(identity,{...b,previewToken:p.previewToken})).code,'ACTION_OUTCOME_UNKNOWN');
+ assert.equal((await service.status(identity,b)).verified,false);await service.execute(identity,{...b,previewToken:p.previewToken});assert.equal(provider.writes.length,1);
+});

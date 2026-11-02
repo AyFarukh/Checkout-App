@@ -110,3 +110,22 @@ test('verification checks exact policy, address, line, note, discount and termin
  assert.equal(verifyAction('skip',{},before,{subscription:{...before,nextBillingDateEpoch:before.nextBillingDateEpoch+86400},schedule:[]},{scheduleId:'1'}),false,'date drift alone is not a verified skip');
  assert.equal(verifyAction('skip',{},before,{subscription:{...before,nextBillingDateEpoch:before.nextBillingDateEpoch+86400},schedule:[{id:1,status:'SKIPPED'}]},{scheduleId:'1'}),true);
 });
+
+test('one-time routine add uses the once endpoint and cannot claim a recurring addition',()=>{
+ const payload={operation:'add-once',variantShopifyId:'101',quantity:1};
+ const plan=prepareAction('edit-products','42347174',payload,before,{now});
+ assert.equal(plan.pathname,'subscription/42347174/line/once');assert.equal(plan.method,'POST');
+ assert.deepEqual(plan.body,{variantShopifyId:101,quantity:1,discountType:'NONE',discountValue:0,isUpsell:true});
+ const updated={...before,lineItems:[...before.lineItems,{id:8,variantShopifyId:101,quantity:1,isOneTimeAdded:true}]};
+ assert.equal(verifyAction('edit-products',payload,before,{subscription:updated},plan),true);
+ assert.equal(verifyAction('edit-products',payload,before,{subscription:{...updated,lineItems:updated.lineItems.map(l=>({...l,isOneTimeAdded:false}))}},plan),false);
+ assert.equal(verifyAction('edit-products',payload,before,{subscription:{...updated,lineItems:updated.lineItems.map(l=>l.id===7?{...l,quantity:99}:l)}},plan),false);
+ assert.throws(()=>normalizeAction('edit-products',{...payload,discountValue:100}));
+});
+
+test('one-time add must preserve every pre-existing one-time item',()=>{
+ const initial={...before,lineItems:[...before.lineItems,{id:77,variantShopifyId:303,quantity:2,isOneTimeAdded:true}]},payload={operation:'add-once',variantShopifyId:'101',quantity:1},plan=prepareAction('edit-products','42347174',payload,initial,{now});
+ const added={id:8,variantShopifyId:101,quantity:1,isOneTimeAdded:true};
+ assert.equal(verifyAction('edit-products',payload,initial,{subscription:{...initial,lineItems:[...before.lineItems,added]}},plan),false);
+ assert.equal(verifyAction('edit-products',payload,initial,{subscription:{...initial,lineItems:[...before.lineItems,{...initial.lineItems[1],quantity:99},added]}},plan),false);
+});

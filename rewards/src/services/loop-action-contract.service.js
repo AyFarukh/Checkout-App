@@ -27,11 +27,11 @@ export function normalizeAction(action,payload) {
   if(action==='cancel' && (p.confirmCancellation!==true || (p.comment!==undefined&&!text(p.comment,500,true)))) fail('CANCELLATION_CONFIRMATION_REQUIRED');
   if(action==='edit-products') {
     const op=p.operation||'quantity';
-    if(!['quantity','add','swap','remove'].includes(op)||
-      (op!=='add'&&!id(p.lineId))||
+    if(!['quantity','add','add-once','swap','remove'].includes(op)||
+      (!['add','add-once'].includes(op)&&!id(p.lineId))||
       (op!=='remove'&&(!Number.isInteger(p.quantity)||p.quantity<1||p.quantity>99))||
-      (['add','swap'].includes(op)&&(!id(p.variantShopifyId)||!Number.isSafeInteger(Number(p.variantShopifyId))))) fail('INVALID_LINE_UPDATE');
-    if((op==='quantity'&&p.variantShopifyId!==undefined)||(op==='add'&&p.lineId!==undefined)||(op==='remove'&&(p.quantity!==undefined||p.variantShopifyId!==undefined))) fail('INVALID_LINE_UPDATE');
+      (['add','add-once','swap'].includes(op)&&(!id(p.variantShopifyId)||!Number.isSafeInteger(Number(p.variantShopifyId))))) fail('INVALID_LINE_UPDATE');
+    if((op==='quantity'&&p.variantShopifyId!==undefined)||(['add','add-once'].includes(op)&&p.lineId!==undefined)||(op==='remove'&&(p.quantity!==undefined||p.variantShopifyId!==undefined))) fail('INVALID_LINE_UPDATE');
   }
   if(action==='edit-address') {
     for(const k of ['firstName','lastName','address1','city','countryCode']) if(!text(p[k],255)) fail('INVALID_ADDRESS');
@@ -126,11 +126,16 @@ export function prepareAction(action,subscriptionId,payload,before,{now=Date.now
   if(action==='cancel') {suffix='cancel';body={notifyCustomer:true,...(p.comment!==undefined?{comment:p.comment}:{})};}
   if(action==='edit-products') {
     const op=p.operation||'quantity',all=subscriptionLines(before),line=all.find(l=>String(l.id)===p.lineId);
-    if(op!=='add'&&!line) throw actionError('LINE_NOT_OWNED',403);
+    if(!['add','add-once'].includes(op)&&!line) throw actionError('LINE_NOT_OWNED',403);
     if(line?.bundleTransactionId || before.hasBundle) throw actionError('BUNDLE_REQUIRES_LOOP_EDITOR',409);
     if(op==='quantity') {
       if(Number(line.quantity)===p.quantity) throw actionError('NO_CHANGE',409);
       suffix=`line/${p.lineId}/update`;method='PUT';body={quantity:p.quantity};
+    } else if(op==='add-once') {
+      if(before.isBillingRetryOn)throw actionError('SUBSCRIPTION_IN_DUNNING',409);
+      if(!Number.isFinite(nextEpoch(before))||nextEpoch(before)<=0)throw actionError('NEXT_ORDER_UNAVAILABLE',409);
+      if(all.some(l=>String(l.variantShopifyId)===p.variantShopifyId&&l.isOneTimeAdded===true))throw actionError('ONE_TIME_PRODUCT_ALREADY_ADDED',409);
+      suffix='line/once';body={variantShopifyId:Number(p.variantShopifyId),quantity:p.quantity,discountType:'NONE',discountValue:0,isUpsell:true};
     } else if(op==='remove') {
       if(all.filter(l=>!l.isOneTimeAdded&&!l.isOneTimeRemoved).length<=1) throw actionError('LAST_LINE_REMOVAL_BLOCKED',409);
       suffix=`line/${p.lineId}`;method='DELETE';
@@ -154,6 +159,12 @@ export function verifyAction(action,p,before,after,plan) {
   if(action==='frequency') return frequencyMatches(s,p);
   if(action==='edit-products') {
     const all=subscriptionLines(s),op=p.operation||'quantity';
+    if(op==='add-once'){
+      const old=subscriptionLines(before),ordered=rows=>rows.slice().sort((a,b)=>String(a.id).localeCompare(String(b.id)));
+      const retained=all.filter(l=>old.some(previous=>String(previous.id)===String(l.id)));
+      const additions=all.filter(l=>!old.some(previous=>String(previous.id)===String(l.id)));
+      return additions.length===1&&additions[0].isOneTimeAdded===true&&String(additions[0].variantShopifyId)===p.variantShopifyId&&Number(additions[0].quantity)===p.quantity&&nextEpoch(s)===nextEpoch(before)&&all.length===old.length+1&&canonical(ordered(retained))===canonical(ordered(old));
+    }
     if(op==='remove')return !all.some(l=>String(l.id)===p.lineId);
     if(op==='add')return all.some(l=>String(l.variantShopifyId)===p.variantShopifyId&&Number(l.quantity)===p.quantity&&!subscriptionLines(before).some(old=>String(old.id)===String(l.id)));
     if(op==='swap')return all.some(l=>String(l.variantShopifyId)===p.variantShopifyId&&Number(l.quantity)===p.quantity)&&!all.some(l=>String(l.id)===p.lineId&&String(l.variantShopifyId)!==p.variantShopifyId);

@@ -8,7 +8,7 @@ The dashboard reads each signed-in customer's subscriptions through the existing
 - Products, shipping, saved order note and active discounts use the selected subscription's response.
 - Payment management and account order links return to the existing account portal.
 - Scheduled and past orders load on demand from authenticated POST /apps/ftr-welcome/subscriptions/order-list with subscriptionId and kind (schedule or history). Errors offer a read retry. Empty lists have explicit messages. The response contains safe order fields only, displays up to the first 100 returned orders and discloses truncation.
-- Products to explore come from the section's collection setting, falling back to collections.all. Unavailable products and products already on the selected subscription are excluded. Empty recommendations are hidden. These links open real product pages; they do not silently add subscription items.
+- Products to explore come from the section's collection setting, falling back to collections.all. Unavailable products and products already on the selected subscription are excluded. Empty recommendations are hidden. Add buttons now open a preview/confirmation flow for one-time products on the next subscription order. See docs/reference-dashboard-one-time.md for the current design and configuration.
 
 ## Authentication and mutation gates
 
@@ -20,7 +20,7 @@ Loop confirmed there is no gift-upcoming-order API for a custom portal. Gift dis
 
 ## Validation and preview update
 
-On 2026-11-02 the suite passed 103 unit tests (two existing Mongo-dependent skips), 66 subscription integration tests and 47 browser tests. Browser coverage includes all supported action forms and full local Express/Mongo/provider-fixture flows, card selection/isolation, pending checks in read-only mode, account/payment links, safe lazy order views with retries, saved fields, recommendation links, missing/malformed permissions and mobile fit. These are local controlled-provider tests, not a new live customer acceptance run. Liquid/asset validation passed using the validator's bundled Shopify schemas because its online documentation refresh timed out.
+On 2026-11-02 the suite passed 105 unit tests (two existing Mongo-dependent skips), 70 subscription integration tests and 51 browser tests. Browser coverage includes all supported action forms and full local Express/Mongo/provider-fixture flows, card selection/isolation, pending checks in read-only mode, account/payment links, safe lazy order views with retries, saved fields, recommendation links, missing/malformed permissions and mobile fit. These are local controlled-provider tests, not a new live customer acceptance run. Liquid/asset validation passed using the validator's bundled Shopify schemas because its online documentation refresh timed out.
 
 The theme changes are on feature/loop-all-actions-confirmation-v1. Update these three files together in the unpublished development theme: assets/ftr-subscription-dashboard.js, assets/ftr-subscription-dashboard.css and sections/ftr-subscription-dashboard.liquid. Select a recommendation collection in the theme editor if desired. Reload the signed-in preview and select the intended subscription card.
 

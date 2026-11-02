@@ -32,3 +32,9 @@ for(const operation of ['add','swap','remove'])test(`product ${operation}: full 
 test('mobile dialog keeps confirmation usable and excludes hidden product fields',async({page})=>{
  await page.setViewportSize({width:390,height:844});await page.goto('http://127.0.0.1:4123/');await page.getByRole('button',{name:'Edit products',exact:true}).click();const d=page.getByRole('dialog');await expect(d.getByLabel('New product',{exact:true})).toBeHidden();await expect(d.getByRole('button',{name:'Review change'})).toBeVisible();
 });
+
+test('routine one-time Add traverses browser, signed proxy, Mongo, once endpoint and verified refresh',async({page,request})=>{
+ await page.goto('http://127.0.0.1:4123/');await page.getByRole('button',{name:'Add One-time product once',exact:true}).click();const d=page.getByRole('dialog');
+ await expect(d).toContainText('next order only');await d.getByRole('button',{name:'Review change'}).click();await expect(d.getByRole('button',{name:'Confirm change'})).toBeVisible();await d.getByRole('button',{name:'Confirm change'}).click();await expect(d).toHaveCount(0);
+ const state=await (await request.get('http://127.0.0.1:4123/__fixture/state')).json();expect(state.writes).toBe(1);expect(state.attempts[0].status).toBe('applied');
+});
