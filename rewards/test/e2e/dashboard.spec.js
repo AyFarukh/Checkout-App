@@ -12,7 +12,7 @@ async function setup(page,{unknown=false,rejected=false,subscriptions,mutationsE
   const path=new URL(route.request().url()).pathname;
   if(path==='/dashboard.js')return route.fulfill({contentType:'text/javascript; charset=utf-8',body:await readFile(assets.js,'utf8')});
   if(path==='/dashboard.css')return route.fulfill({contentType:'text/css; charset=utf-8',body:await readFile(assets.css,'utf8')});
-  if(path==='/')return route.fulfill({contentType:'text/html; charset=utf-8',body:'<link rel="stylesheet" href="/dashboard.css"><section class="ftr-sub" data-account-url="/account" data-shop-url="/collections/all" id="ftr-subscription-dashboard-test" data-endpoint="/apps/ftr-welcome/subscriptions"><main class="ftr-sub__main"><div class="ftr-sub__loading"></div></main><template data-subscription-recommendations>'+recommendations+'</template></section><script src="/dashboard.js"></script>'});
+  if(path==='/')return route.fulfill({contentType:'text/html; charset=utf-8',body:'<link rel="stylesheet" href="/dashboard.css"><header class="shopify-section-group-header-group">Existing store header</header><section class="ftr-sub" data-account-url="/account" data-shop-url="/collections/all" id="ftr-subscription-dashboard-test" data-endpoint="/apps/ftr-welcome/subscriptions"><main class="ftr-sub__main"><div class="ftr-sub__loading"></div></main><template data-subscription-recommendations>'+recommendations+'</template></section><footer class="shopify-section-group-footer-group">Existing store footer</footer><script src="/dashboard.js"></script>'});
   const body=route.request().method()==='POST'?route.request().postDataJSON():null;
   if(body)calls.push({path,body});
   if(path.endsWith('order-list')){orderReads++;if(orderError&&orderReads===1)return route.fulfill({status:503,json:{ok:false,code:'SUBSCRIPTION_SERVICE_UNAVAILABLE'}});return route.fulfill({json:{ok:true,subscriptionId:body.subscriptionId,kind:body.kind,orders:[{id:'21',status:body.kind==='schedule'?'UNPROCESSED':'PROCESSED',billingDate:'2027-01-14T10:00:00Z',shopifyOrderNumber:'1001'}]}});}
@@ -206,4 +206,10 @@ test('read-only routine add stays disabled and existing one-time lines are clear
  const sub=baseSubscription();sub.lineItems.push({id:8,variantShopifyId:202,quantity:1,isOneTimeAdded:true});
  const calls=await setup(page,{mutationsEnabled:false,subscriptions:[sub],recommendations:'<article class="ftr-sub__rec" data-variants="[{&quot;id&quot;:&quot;303&quot;,&quot;title&quot;:&quot;Mist&quot;}]"><h3>Mist</h3><button type="button" data-add-once>Add</button></article>'});
  await expect(page.getByRole('button',{name:'Add Mist once'})).toBeDisabled();await expect(page.getByText('One-time · Next order only',{exact:true})).toBeVisible();expect(calls).toHaveLength(0);
+});
+
+for(const width of [390,1280])test(`existing store header and footer remain visible at ${width}px`,async({page})=>{
+ await page.setViewportSize({width,height:844});await setup(page);
+ await expect(page.getByText('Existing store header',{exact:true})).toBeVisible();await expect(page.getByText('Existing store footer',{exact:true})).toBeVisible();
+ await expect(page.getByRole('link',{name:'Back to account',exact:true})).toHaveAttribute('href','/account');
 });
