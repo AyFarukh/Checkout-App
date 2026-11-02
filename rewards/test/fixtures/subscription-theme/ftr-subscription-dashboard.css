@@ -126,3 +126,9 @@ body:has(.ftr-sub) .ftr-sub__loading{color:#26523a}
 .ftr-sub__action-field input[type="checkbox"]{width:20px;min-height:20px;accent-color:#104b2c}
 
 
+.ftr-sub__subscription-picker{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:24px}
+.ftr-sub__subscription-label{display:flex;flex-direction:column;gap:8px;min-width:0;max-width:100%;font-weight:600;color:inherit}
+.ftr-sub__subscription-select{display:block;max-width:100%;min-width:260px;padding:12px 36px 12px 14px;border:1px solid #c9d3ca;border-radius:8px;background:#fff;color:inherit;font:inherit}
+.ftr-sub__subscription-select:focus-visible{outline:2px solid currentColor;outline-offset:3px}
+.ftr-sub__subscription-id{margin:0;font-size:14px;overflow-wrap:anywhere}
+@media(max-width:600px){.ftr-sub__subscription-label,.ftr-sub__subscription-select{width:100%;min-width:0}.ftr-sub__subscription-picker{align-items:flex-start;gap:12px}}
