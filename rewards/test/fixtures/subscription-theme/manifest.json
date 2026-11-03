@@ -1,8 +1,8 @@
 {
   "repository": "AyFarukh/Freetheroot-Shopify-Theme-Dev",
-  "commit": "9ae44a325b573fa2c23de180ca16208571d2b59d",
+  "commit": "1f167638f4bc20aea238a1f7df77f9fd18bfc00d",
   "files": {
-    "ftr-subscription-dashboard.js": "50add36330d2d57684400b783c6568029b2cd0f8368a809cfbc8991fbaf0ff4a",
-    "ftr-subscription-dashboard.css": "52ef954c8800530cbde6463d3ebffa2d4402b5fa4a42877b6b3d8ac35337a37d"
+    "ftr-subscription-dashboard.css": "db499edd5bfc219a0870c894f02a00c623aa63e348c0a437555e26cd6017b9cf",
+    "ftr-subscription-dashboard.js": "d5fc12a073874662c94a78fa5fbe64b8be2b112bda79f0f8d588df7876b755d2"
   }
 }

@@ -6,13 +6,13 @@ const assets=resolveSubscriptionThemeAssets();
 const labels={skip:'Skip next order',reschedule:'Reschedule',delay:'Delay','order-now':'Order now',frequency:'Change frequency',pause:'Pause subscription',cancel:'Cancel subscription','edit-products':'Edit products','edit-address':'Edit address',discount:'Discount code','order-note':'Order notes'};
 const fields={date:'Choose a new date',days:'Delay delivery by',intervalCount:'Every',interval:'Period',preponeFutureOrder:'Place an immediate order',confirmCancellation:'Confirm cancellation',confirmPause:'Confirm pause',lineId:'Product',quantity:'Quantity',value:null,firstName:'First name',lastName:'Last name',address1:'Address',city:'City',countryCode:'Country code',provinceCode:'State code',zip:'Postal code'};
 
-async function setup(page,{unknown=false,rejected=false,subscriptions,mutationsEnabled=true,recommendations="",orderError=false,omitCapabilities=false}={}) {
+async function setup(page,{unknown=false,rejected=false,subscriptions,mutationsEnabled=true,recommendations="",orderError=false,omitCapabilities=false,hostStyles=""}={}) {
  const calls=[];let orderReads=0;
  await page.route('http://localhost:4124/**',async route=>{
   const path=new URL(route.request().url()).pathname;
   if(path==='/dashboard.js')return route.fulfill({contentType:'text/javascript; charset=utf-8',body:await readFile(assets.js,'utf8')});
   if(path==='/dashboard.css')return route.fulfill({contentType:'text/css; charset=utf-8',body:await readFile(assets.css,'utf8')});
-  if(path==='/')return route.fulfill({contentType:'text/html; charset=utf-8',body:'<link rel="stylesheet" href="/dashboard.css"><header class="shopify-section-group-header-group">Existing store header</header><section class="ftr-sub" data-account-url="/account" data-shop-url="/collections/all" id="ftr-subscription-dashboard-test" data-endpoint="/apps/ftr-welcome/subscriptions"><main class="ftr-sub__main"><div class="ftr-sub__loading"></div></main><template data-subscription-recommendations>'+recommendations+'</template></section><footer class="shopify-section-group-footer-group">Existing store footer</footer><script src="/dashboard.js"></script>'});
+  if(path==='/')return route.fulfill({contentType:'text/html; charset=utf-8',body:'<style>'+hostStyles+'</style><link rel="stylesheet" href="/dashboard.css"><header class="shopify-section-group-header-group">Existing store header</header><section class="ftr-sub" data-account-url="/account" data-shop-url="/collections/all" id="ftr-subscription-dashboard-test" data-endpoint="/apps/ftr-welcome/subscriptions"><main class="ftr-sub__main"><div class="ftr-sub__loading"></div></main><template data-subscription-recommendations>'+recommendations+'</template></section><footer class="shopify-section-group-footer-group">Existing store footer</footer><script src="/dashboard.js"></script>'});
   const body=route.request().method()==='POST'?route.request().postDataJSON():null;
   if(body)calls.push({path,body});
   if(path.endsWith('order-list')){orderReads++;if(orderError&&orderReads===1)return route.fulfill({status:503,json:{ok:false,code:'SUBSCRIPTION_SERVICE_UNAVAILABLE'}});return route.fulfill({json:{ok:true,subscriptionId:body.subscriptionId,kind:body.kind,orders:[{id:'21',status:body.kind==='schedule'?'UNPROCESSED':'PROCESSED',billingDate:'2027-01-14T10:00:00Z',shopifyOrderNumber:'1001'}]}});}
@@ -212,4 +212,22 @@ for(const width of [390,1280])test(`existing store header and footer remain visi
  await page.setViewportSize({width,height:844});await setup(page);
  await expect(page.getByText('Existing store header',{exact:true})).toBeVisible();await expect(page.getByText('Existing store footer',{exact:true})).toBeVisible();
  await expect(page.getByRole('link',{name:'Back to account',exact:true})).toHaveAttribute('href','/account');
+});
+
+test('mobile typography, list markers and order affordances survive storefront resets',async({page})=>{
+ await page.setViewportSize({width:390,height:844});await setup(page,{hostStyles:'ul{list-style:none;margin:0;padding:0}summary{list-style:none}button{font-size:1em}h3{font-weight:700}'});
+ const style=await page.getByRole('button',{name:'Order now',exact:true}).evaluate(n=>({size:getComputedStyle(n).fontSize,weight:getComputedStyle(n).fontWeight}));
+ expect(style.size).toBe('11px');expect(style.weight).toBe('500');
+ expect(await page.locator('.ftr-sub__products').evaluate(n=>getComputedStyle(n).listStyleType)).toBe('disc');
+ const summary=page.locator('.ftr-sub__order-view summary').first();await expect(summary.locator('svg')).toHaveCount(2);
+});
+test('mobile routine prices and Add buttons align for different product-title lengths',async({page})=>{
+ await page.setViewportSize({width:390,height:844});
+ const titles=['Ruby Grapefruit Shampoo-Replacement Bar','Ruby Grapefruit ACV Conditioner & Build-Up Remover','Ruby Grapefruit Pack',"Nature’s Medicine Shampoo-Replacement Bar",'Lemon Herb Aloe Hydrating Mist'];
+ const recs=titles.map((t,i)=>`<article class="ftr-sub__rec" data-variants='[{"id":"${202+i}","title":"Default"}]'><a href="/products/test"><img width="100" height="100" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E"><h3>${t}</h3></a><p>Rs.16,800.00</p><button class="ftr-sub__btn" data-add-once>Add</button></article>`).join('');
+ await setup(page,{recommendations:recs});
+ for(const selector of ['.ftr-sub__rec>p','.ftr-sub__rec>[data-add-once]']){
+  const tops=await page.locator(selector).evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().top));expect(Math.max(...tops)-Math.min(...tops)).toBeLessThanOrEqual(1);
+ }
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });

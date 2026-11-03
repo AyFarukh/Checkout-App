@@ -18,7 +18,7 @@ unset FTR_THEME_ASSET
 npm run test:subscriptions:all
 ```
 
-This is the safe automated suite: real local Express/Mongo and controlled Loop fixtures. It never mutates live subscriptions. Expected: 105 unit passes, two existing Mongo-dependent skips, 70 integration passes and 53 browser passes. It covers existing actions, one-time Add, durable replay/unknown recovery, authentication/ownership, variants, keyboard controls, mobile layout and preservation of existing store header/footer.
+This is the safe automated suite: real local Express/Mongo and controlled Loop fixtures. It never mutates live subscriptions. Expected: 105 unit passes, two existing Mongo-dependent skips, 70 integration passes and 55 browser passes. It covers existing actions, one-time Add, durable replay/unknown recovery, authentication/ownership, variants, keyboard controls, mobile layout and preservation of existing store header/footer.
 
 To run just routine-related browser checks:
 
