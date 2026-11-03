@@ -1,3 +1,4 @@
+import {subscriptionActionScope as scope} from './loop-action-access.service.js';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { ShopifyOfflineToken } from '../models/ShopifyOfflineToken.js';
 import { LoopActionAttempt } from '../models/LoopActionAttempt.js';
@@ -24,13 +25,6 @@ function receipt(token) {
   const expected=createHmac('sha256',secret()).update(body).digest(),given=Buffer.from(mac,'base64url');
   if(given.length!==expected.length||!timingSafeEqual(given,expected)) throw actionError('INVALID_PREVIEW');
   try { return JSON.parse(Buffer.from(body,'base64url').toString()); } catch { throw actionError('INVALID_PREVIEW'); }
-}
-function scope(identity,subscriptionId) {
-  const {shop,customerId}=identity||{};
-  if(typeof shop!=='string'||!/^([a-z0-9][a-z0-9-]*)\.myshopify\.com$/.test(shop)||!/^\d+$/.test(customerId||'')) throw actionError('SIGN_IN_REQUIRED',401);
-  if(shop!==process.env.LOOP_TEST_SHOP||customerId!==process.env.LOOP_TEST_CUSTOMER_ID||
-      subscriptionId!=='42347174'||subscriptionId!==process.env.LOOP_TEST_SUBSCRIPTION_ID) throw actionError('TEST_ONLY',403);
-  return {shop,customerId,subscriptionId};
 }
 function request(identity,body) {
   const bound=scope(identity,body?.subscriptionId);

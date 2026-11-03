@@ -233,7 +233,9 @@ test('production and default-disabled environments cannot mutate',async()=>{
  const b=request('skip',{}),p=await service.preview(identity,b);
  process.env.LOOP_TEST_MUTATIONS_ENABLED='false';await assert.rejects(service.execute(identity,{...b,previewToken:p.previewToken}),e=>e.code==='LOOP_MUTATIONS_DISABLED');
  process.env.LOOP_TEST_MUTATIONS_ENABLED='true';process.env.NODE_ENV='production';
- await assert.rejects(service.execute(identity,{...b,previewToken:p.previewToken}),e=>e.code==='LOOP_MUTATIONS_DISABLED');process.env.NODE_ENV='test';assert.equal(provider.writes.length,0);
+ const savedShop=process.env.LOOP_ADMIN_SHOP;process.env.LOOP_ADMIN_SHOP=identity.shop;
+ try{await assert.rejects(service.execute(identity,{...b,previewToken:p.previewToken}),e=>e.code==='LOOP_MUTATIONS_DISABLED');}
+ finally{process.env.NODE_ENV='test';if(savedShop===undefined)delete process.env.LOOP_ADMIN_SHOP;else process.env.LOOP_ADMIN_SHOP=savedShop;}assert.equal(provider.writes.length,0);
 });
 test('a worker crash after reservation cannot allow another request to dispatch',async()=>{
  const b=request('skip',{});
@@ -362,3 +364,70 @@ test('one-time add with unchanged read-back stays unknown and does not redispatc
  assert.equal((await service.execute(identity,{...b,previewToken:p.previewToken})).code,'ACTION_OUTCOME_UNKNOWN');
  assert.equal((await service.status(identity,b)).verified,false);await service.execute(identity,{...b,previewToken:p.previewToken});assert.equal(provider.writes.length,1);
 });
+
+// Production-mode tests redirect the official API to the local HTTP fixture.
+async function productionFixture(t,run) {
+ const saved=Object.fromEntries(['NODE_ENV','LOOP_ADMIN_SHOP','LOOP_PRODUCTION_MUTATIONS_ENABLED','LOOP_ADMIN_API_URL'].map(k=>[k,process.env[k]]));
+ const originalFetch=globalThis.fetch;
+ t.mock.method(globalThis,'fetch',(url,options)=>String(url).startsWith('https://test.myshopify.com/')?Promise.resolve(Response.json({data:{nodes:[],products:{nodes:[]}}})):originalFetch(String(url).replace('https://api.loopsubscriptions.com/admin/2026-04',provider.url),options));
+ Object.assign(process.env,{NODE_ENV:'production',LOOP_ADMIN_SHOP:identity.shop,LOOP_PRODUCTION_MUTATIONS_ENABLED:'true',LOOP_ADMIN_API_URL:'https://api.loopsubscriptions.com/admin/2026-04'});
+ provider.subscription.id=55555;provider.subscription.customer.shopifyId=987;
+ try{await run({shop:identity.shop,customerId:'987'});}finally{for(const [k,v] of Object.entries(saved)){if(v===undefined)delete process.env[k];else process.env[k]=v;}}
+}
+for(const [action,payload] of actionCases)test(`production ${action}: owned subscription, verified write and durable replay`,async t=>productionFixture(t,async owner=>{
+ const body={...request(action,payload),subscriptionId:'55555'},preview=await service.preview(owner,body);
+ const result=await service.execute(owner,{...body,previewToken:preview.previewToken});assert.equal(result.verified,true,JSON.stringify(result));assert.equal(result.replayed,false);
+ assert.equal((await service.execute(owner,{...body,previewToken:preview.previewToken})).replayed,true);
+ assert.equal((await service.status(owner,body)).verified,true);assert.equal(provider.writes.length,1);assert.ok(provider.writes[0].path.includes('/subscription/55555/'));
+}));
+test('production rejects foreign customer, merchant, inactive installation and gift',async t=>productionFixture(t,async owner=>{
+ const body={...request('order-note',{value:'Test note'}),subscriptionId:'55555'};
+ await assert.rejects(service.preview({...owner,customerId:'456'},body),e=>e.code==='SUBSCRIPTION_NOT_OWNED');
+ await assert.rejects(service.preview({...owner,shop:'foreign.myshopify.com'},body),e=>e.code==='STORE_NOT_AUTHORIZED');
+ await assert.rejects(createLoopActionService({installationExists:async()=>false}).preview(owner,body),e=>e.code==='STORE_NOT_AUTHORIZED');
+ provider.owned=false;await assert.rejects(service.preview(owner,body),e=>e.code==='SUBSCRIPTION_NOT_OWNED');provider.owned=true;
+ provider.subscription.metaData={myshopifyDomain:'foreign.myshopify.com'};await assert.rejects(service.preview(owner,body),e=>e.code==='SUBSCRIPTION_NOT_OWNED');delete provider.subscription.metaData;
+ await assert.rejects(service.preview(owner,{...body,action:'gift',payload:{}}),e=>e.code==='GIFT_API_UNAVAILABLE');assert.equal(provider.writes.length,0);
+}));
+test('production kill switch blocks writes and preserves unknown verification',async t=>productionFixture(t,async owner=>{
+ const body={...request('order-note',{value:'Test note'}),subscriptionId:'55555'},preview=await service.preview(owner,body);provider.ambiguousFailure=true;
+ assert.equal((await service.execute(owner,{...body,previewToken:preview.previewToken})).code,'ACTION_OUTCOME_UNKNOWN');
+ process.env.LOOP_PRODUCTION_MUTATIONS_ENABLED='false';await assert.rejects(service.execute(owner,{...body,previewToken:preview.previewToken}),e=>e.code==='LOOP_MUTATIONS_DISABLED');
+ assert.equal((await service.status(owner,body)).verified,true);assert.equal(provider.writes.length,1);
+ await assert.rejects(service.status({...owner,customerId:'456'},body),e=>['SUBSCRIPTION_NOT_OWNED','ACTION_NOT_FOUND'].includes(e.code));
+}));
+test('production signed routes reject body spoofing and return matching capabilities',async t=>productionFixture(t,async owner=>{
+ await ShopifyOfflineToken.updateOne({shop:identity.shop},{$set:{accessToken:'fixture-only',uninstalledAt:null}},{upsert:true});
+ const app=express();app.use(express.json());app.use(welcomeVerification);const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
+ const call=(path,customerId,body)=>{
+  const q={shop:identity.shop,logged_in_customer_id:customerId,timestamp:String(Math.floor(Date.now()/1000))};q.signature=createHmac('sha256',process.env.SHOPIFY_API_SECRET).update(Object.keys(q).sort().map(k=>`${k}=${q[k]}`).join('')).digest('hex');
+  return fetch(`http://127.0.0.1:${server.address().port}/subscriptions${path}?`+new URLSearchParams(q),body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});
+ };
+ const body={...request('order-note',{value:'Signed production note'}),subscriptionId:'55555',shop:owner.shop,customerId:owner.customerId};
+ try{
+  const spoof=await call('/action-preview','456',body);assert.equal(spoof.status,403);assert.equal((await spoof.json()).code,'SUBSCRIPTION_NOT_OWNED');
+  const gift=await call('/action-execute',owner.customerId,{...body,action:'gift',payload:{}});assert.equal((await gift.json()).code,'GIFT_API_UNAVAILABLE');assert.equal(await LoopActionAttempt.countDocuments({}),0);assert.equal(provider.writes.length,0);
+  const caps=await (await call('',owner.customerId)).json();assert.equal(caps.mode,'production');assert.equal(caps.mutationsEnabled,true);assert.equal(caps.subscriptions[0].mutationAllowed,true);
+  const preview=await (await call('/action-preview',owner.customerId,body)).json();assert.equal(preview.preview,true);
+  assert.equal((await (await call('/action-execute',owner.customerId,{...body,previewToken:preview.previewToken})).json()).verified,true);
+  assert.equal((await (await call('/action-execute',owner.customerId,{...body,previewToken:preview.previewToken})).json()).replayed,true);
+  process.env.LOOP_PRODUCTION_MUTATIONS_ENABLED='false';const disabled=await (await call('',owner.customerId)).json();assert.equal(disabled.mutationsEnabled,false);assert.equal(disabled.subscriptions[0].mutationAllowed,false);
+  assert.equal((await (await call('/action-status',owner.customerId,body)).json()).verified,true);assert.equal(provider.writes.length,1);
+ }finally{await new Promise(r=>server.close(r));await ShopifyOfflineToken.deleteMany({shop:identity.shop});}
+}));
+test('production concurrent keys acquire a single durable subscription lock',async t=>productionFixture(t,async owner=>{
+ const bodies=['production-key-first-12345','production-key-second-12345'].map(key=>({...request('order-note',{value:'Concurrent note'},key),subscriptionId:'55555'}));
+ const previews=await Promise.all(bodies.map(b=>service.preview(owner,b)));provider.writeDelay=60;
+ const results=await Promise.allSettled(bodies.map((b,i)=>service.execute(owner,{...b,previewToken:previews[i].previewToken})));
+ assert.equal(results.filter(r=>r.status==='fulfilled'&&r.value.verified===true).length,1);
+ assert.equal(results.filter(r=>r.status==='rejected'&&['SUBSCRIPTION_ACTION_PENDING','STALE_PREVIEW'].includes(r.reason.code)).length,1);
+ assert.equal(provider.writes.length,1);assert.equal(await LoopActionAttempt.countDocuments({}),1);
+}));
+test('production rechecks ownership and installation after preview without reserving or writing',async t=>productionFixture(t,async owner=>{
+ const body={...request('order-note',{value:'Test note'}),subscriptionId:'55555'};
+ const preview=await service.preview(owner,body);provider.subscription.customer.shopifyId=456;
+ await assert.rejects(service.execute(owner,{...body,previewToken:preview.previewToken}),e=>e.code==='SUBSCRIPTION_NOT_OWNED');provider.subscription.customer.shopifyId=987;
+ let installed=true;const active=createLoopActionService({installationExists:async()=>installed}),receipt=await active.preview(owner,body);installed=false;
+ await assert.rejects(active.execute(owner,{...body,previewToken:receipt.previewToken}),e=>e.code==='STORE_NOT_AUTHORIZED');
+ assert.equal(provider.writes.length,0);assert.equal(await LoopActionAttempt.countDocuments({}),0);
+}));

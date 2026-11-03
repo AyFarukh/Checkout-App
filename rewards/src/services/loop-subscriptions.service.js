@@ -1,3 +1,5 @@
+import {subscriptionWriteAllowed} from './loop-action-access.service.js';
+export {loopMutationsEnabled} from './loop-action-access.service.js';
 const DEFAULT_LOOP_ADMIN_API = "https://api.loopsubscriptions.com/admin/2026-04";
 
 function serviceError(message, statusCode = 502) {
@@ -49,17 +51,9 @@ export function prioritizeSubscriptions(subscriptions = []) {
   return [...subscriptions].sort((a, b) => rank(a?.status) - rank(b?.status));
 }
 
-export function loopMutationsEnabled() {
-  // The existing production flag is intentionally insufficient to enable writes.
-  return ['test','development'].includes(process.env.NODE_ENV) && process.env.LOOP_TEST_MUTATIONS_ENABLED==='true';
-}
-
 export async function loopAdminRequest(pathname, { method = "GET", body, signal, testScope } = {}) {
-  if (method !== "GET" && (!loopMutationsEnabled() ||
-      testScope?.shop!==process.env.LOOP_TEST_SHOP || testScope?.customerId!==process.env.LOOP_TEST_CUSTOMER_ID ||
-      testScope?.subscriptionId!=='42347174' || process.env.LOOP_TEST_SUBSCRIPTION_ID!=='42347174' ||
-      !String(pathname).startsWith('subscription/42347174/'))) {
-    throw serviceError("Subscription changes are disabled until test verification is complete", 503);
+  if (method !== "GET" && !subscriptionWriteAllowed(pathname,testScope)) {
+    throw serviceError("Subscription changes are disabled for this scope",503);
   }
   const { baseUrl, requestHeaders } = loopReadOnlyConfig();
   const response = await fetch(`${baseUrl}/${String(pathname || "").replace(/^\//, "")}`, {

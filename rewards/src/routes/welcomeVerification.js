@@ -1,3 +1,4 @@
+import {subscriptionMutationAllowed} from '../services/loop-action-access.service.js';
 import { Router } from "express";
 import { signed } from "../middleware/subscriptionProxyAuth.js";
 import { createSubscriptionActionRouter } from "./subscriptionActions.js";
@@ -5,7 +6,7 @@ export { signed };
 import { requireDatabase } from "../config/db.js";
 import { ShopifyOfflineToken } from "../models/ShopifyOfflineToken.js";
 import { shopifyAdminGraphql } from "../services/shopify-admin.service.js";
-import { getCustomerLoopSubscriptions, loopMutationsEnabled } from "../services/loop-subscriptions.service.js";
+import { getCustomerLoopSubscriptions } from "../services/loop-subscriptions.service.js";
 import { assertLoopMerchantShop } from "../services/loop-customer-read.service.js";
 import { enrichSubscriptionImages } from "../services/subscription-images.service.js";
 import { referralProxy } from "./referralCustomer.js";
@@ -90,9 +91,9 @@ welcomeVerification.get("/subscriptions", requireDatabase, async (req, res) => {
     assertLoopMerchantShop(shop);
     const subscriptions = await getCustomerLoopSubscriptions(customerId);
     const enriched = await enrichSubscriptionImages(shop, subscriptions);
-    const mutationsEnabled = loopMutationsEnabled() && shop === process.env.LOOP_TEST_SHOP && customerId === process.env.LOOP_TEST_CUSTOMER_ID;
-    return res.json({ ok: true, mode: mutationsEnabled ? "test-only" : "read-only", mutationsEnabled,
-      subscriptions: enriched.map(subscription => ({...subscription,mutationAllowed:mutationsEnabled && String(subscription.id)==="42347174" && String(subscription.id)===process.env.LOOP_TEST_SUBSCRIPTION_ID})) });
+    const ownedSubscriptions=enriched.map(subscription=>({...subscription,mutationAllowed:subscriptionMutationAllowed({shop,customerId},String(subscription.id))}));
+    const mutationsEnabled=ownedSubscriptions.some(subscription=>subscription.mutationAllowed===true);
+    return res.json({ok:true,mode:mutationsEnabled?(process.env.NODE_ENV==='production'?'production':'test-only'):'read-only',mutationsEnabled,subscriptions:ownedSubscriptions});
   } catch (error) {
     console.error("[Storefront subscriptions]", error.message);
     return res.status(503).json({ ok: false, message: "Subscription details are temporarily unavailable." });

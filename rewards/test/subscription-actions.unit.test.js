@@ -8,7 +8,7 @@ test('all twelve requested action names are part of the explicit contract',()=>{
  assert.deepEqual(new Set(ACTIONS),new Set(['skip','reschedule','delay','order-now','gift','frequency','pause','cancel','edit-products','edit-address','discount','order-note']));
 });
 test('execution requires confirmation and cannot be enabled with the legacy production flag',async()=>{
- Object.assign(process.env,{NODE_ENV:'production',LOOP_SUBSCRIPTION_MUTATIONS_ENABLED:'true',LOOP_TEST_MUTATIONS_ENABLED:'true',LOOP_TEST_SHOP:'test.myshopify.com',LOOP_TEST_CUSTOMER_ID:'123',LOOP_TEST_SUBSCRIPTION_ID:'42347174'});
+ Object.assign(process.env,{NODE_ENV:'production',LOOP_ADMIN_SHOP:'test.myshopify.com',LOOP_PRODUCTION_MUTATIONS_ENABLED:'false',LOOP_SUBSCRIPTION_MUTATIONS_ENABLED:'true',LOOP_TEST_MUTATIONS_ENABLED:'true',LOOP_TEST_SHOP:'test.myshopify.com',LOOP_TEST_CUSTOMER_ID:'123',LOOP_TEST_SUBSCRIPTION_ID:'42347174'});
  assert.equal(loopMutationsEnabled(),false);
  const service=createLoopActionService({installationExists:()=>{throw Error('must never reach installation');}});
  const request={subscriptionId:'42347174',action:'skip',payload:{},requestKey:'request-key-123456789'};

@@ -61,9 +61,10 @@ test('unknown result persists through reload and never offers a second write',as
  await expect(page.getByText(/previous change is awaiting verification/i)).toBeVisible();
  expect(calls.filter(c=>c.path.endsWith('action-execute'))).toHaveLength(1);
 });
-test('gift shows a precise blocked state and sends no mutation',async({page})=>{
- const calls=await setup(page);await page.getByRole('button',{name:'Gift',exact:true}).click();
- await expect(page.getByRole('dialog')).toContainText('Loop has not published');expect(calls).toHaveLength(0);
+test('gift is unavailable, cannot open a form and sends no mutation',async({page})=>{
+ const calls=await setup(page);const gift=page.getByRole('button',{name:'Gift',exact:true});await expect(gift).toBeDisabled();
+ await expect(gift).toHaveAttribute('title','Gift is currently unavailable.');
+ await expect(page.getByText(/Gift orders are unavailable/)).toBeVisible();await expect(page.getByRole('dialog')).toHaveCount(0);expect(calls).toHaveLength(0);
 });
 test('escape closes dialog and returns focus to trigger',async({page})=>{
  await setup(page);const trigger=page.getByRole('button',{name:'Delay',exact:true});await trigger.click();await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0);await expect(trigger).toBeFocused();
