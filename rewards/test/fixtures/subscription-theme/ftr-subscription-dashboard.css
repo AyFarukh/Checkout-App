@@ -20,6 +20,10 @@
 
 /* Keep subscription confirmation dialogs above theme drawers and center them in viewport. */
 .ftr-sub__dialog{
+  --ftr-green:#104b2c;
+  --ftr-ink:#173b28;
+  --ftr-border:#cbd6ce;
+  --ftr-muted:#4f5d57;
   position:fixed!important;
   inset:0!important;
   z-index:2147483000!important;
@@ -64,7 +68,8 @@
 .ftr-sub__dialog-panel>.ftr-sub__dialog-actions{display:flex!important;visibility:visible!important;opacity:1!important;position:static!important;flex-wrap:wrap!important;gap:10px!important;justify-content:flex-end!important;align-items:center!important;margin:6px 0 0!important;min-height:44px!important}
 .ftr-sub__dialog-panel>.ftr-sub__dialog-actions>.ftr-sub__btn{display:inline-flex!important;visibility:visible!important;opacity:1!important;position:static!important;min-height:44px!important;width:auto!important;flex:1 1 140px!important;max-width:none!important;margin:0!important;padding:10px 14px!important;font-size:13px!important;line-height:1.3!important;white-space:normal!important}
 .ftr-sub__dialog-panel>.ftr-sub__dialog-actions>.ftr-sub__btn:first-child{background:#fff!important;color:#173b28!important;border:1px solid #cbd6ce!important}
-.ftr-sub__dialog-panel>.ftr-sub__dialog-actions>.ftr-sub__btn:last-child{background:#104b2c!important;color:#fff!important;border:1px solid #104b2c!important}
+.ftr-sub__dialog-panel>.ftr-sub__dialog-actions>.ftr-sub__btn--primary:not(:first-child){background:#104b2c!important;color:#fff!important;border:1px solid #104b2c!important}
+.ftr-sub__dialog-panel>.ftr-sub__dialog-actions>.ftr-sub__btn--primary:not(:first-child):hover{background:#0b3013!important;border-color:#0b3013!important}
 .ftr-sub__dialog-panel>.ftr-sub__dialog-actions>.ftr-sub__btn:disabled{opacity:.55!important;cursor:not-allowed!important}
 @media(max-width:640px){.ftr-sub__dialog-panel>h2{font-size:20px!important}}
 

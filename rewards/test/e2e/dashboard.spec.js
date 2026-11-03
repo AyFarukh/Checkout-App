@@ -232,3 +232,18 @@ test('mobile routine prices and Add buttons align for different product-title le
  }
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
+
+for(const width of [1280,390])test(`dialog controls have readable default colors before hover at ${width}px`,async({page})=>{
+ await page.setViewportSize({width,height:900});await setup(page,{unknown:true,hostStyles:'button{background:none;margin:0;border:0}'});
+ await page.getByRole('button',{name:'Order notes',exact:true}).click();const dialog=page.getByRole('dialog');
+ expect(await dialog.evaluate(n=>n.closest('.ftr-sub'))).toBeNull();
+ await dialog.getByLabel('Order note',{exact:true}).fill('Visible controls test');await page.mouse.move(0,0);
+ const review=dialog.getByRole('button',{name:'Review change',exact:true});
+ await expect(review).toHaveCSS('background-color','rgb(16, 75, 44)');await expect(review).toHaveCSS('color','rgb(255, 255, 255)');
+ await expect(dialog.getByRole('button',{name:'Confirm change',exact:true})).toBeHidden();
+ await review.click();await page.mouse.move(0,0);const confirm=dialog.getByRole('button',{name:'Confirm change',exact:true});
+ await expect(confirm).toHaveCSS('background-color','rgb(16, 75, 44)');await expect(confirm).toHaveCSS('color','rgb(255, 255, 255)');await expect(review).toBeHidden();
+ await confirm.click();await page.mouse.move(0,0);const check=dialog.getByRole('button',{name:'Check status',exact:true});
+ await expect(check).toBeVisible();await expect(check).toHaveCSS('background-color','rgb(255, 255, 255)');await expect(check).toHaveCSS('color','rgb(23, 59, 40)');
+ await expect(dialog.getByRole('button',{name:'Close',exact:true})).toHaveCSS('color','rgb(23, 59, 40)');
+});
