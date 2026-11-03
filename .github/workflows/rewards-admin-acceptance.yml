@@ -74,7 +74,9 @@ jobs:
 
   admin-webhook:
     name: Admin webhook FTR-ADM-WH-001..012
-    runs-on: ubuntu-latest
+    # MongoDB 8 cannot start on Linux 6.19..7.0.13 (SERVER-121912).
+    # ubuntu-22.04 currently uses the compatible 6.8 kernel.
+    runs-on: ubuntu-22.04
     timeout-minutes: 15
     env:
       NODE_ENV: test
@@ -186,7 +188,7 @@ jobs:
   shopify-live:
     name: Live Shopify FTR-SYNC-INT-001..005
     if: github.event_name == 'workflow_dispatch' && inputs.run_shopify_live == true
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     environment: rewards-shopify-development
     env:
@@ -281,10 +283,35 @@ jobs:
         run: |
           if node -e "const p=require('./package.json'); process.exit(p.scripts?.build?0:1)"; then npm run build; else echo 'No extension-local build script; structural regression gate passed.'; fi
 
+  subscription-actions:
+    name: Subscription action integration and browser acceptance
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      NODE_ENV: test
+    defaults:
+      run:
+        working-directory: rewards
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: rewards/package-lock.json
+      - name: Install pinned dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install browser and operating system dependencies
+        run: npx playwright install --with-deps chromium
+      - name: Test HTTP adapters, Mongo idempotency and post-action verification
+        run: npm run test:subscriptions:integration
+      - name: Test pinned dashboard and full local subscription flows
+        run: npm run test:subscriptions:e2e
+
   release-gate:
     name: Rewards backend release gate
     if: always()
-    needs: [unit, admin-webhook, shopify-live, checkout-regression]
+    needs: [unit, admin-webhook, shopify-live, checkout-regression, subscription-actions]
     runs-on: ubuntu-latest
     steps:
       - name: Enforce required non-live gates
@@ -292,6 +319,7 @@ jobs:
           UNIT_RESULT: ${{ needs.unit.result }}
           ADMIN_RESULT: ${{ needs.admin-webhook.result }}
           CHECKOUT_RESULT: ${{ needs.checkout-regression.result }}
+          SUBSCRIPTION_RESULT: ${{ needs.subscription-actions.result }}
           SHOPIFY_RESULT: ${{ needs.shopify-live.result }}
           LIVE_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.run_shopify_live == true }}
         run: |
@@ -299,6 +327,7 @@ jobs:
           [ "$UNIT_RESULT" = "success" ] || { echo "::error::Unit FTR gate: $UNIT_RESULT"; exit 1; }
           [ "$ADMIN_RESULT" = "success" ] || { echo "::error::Admin FTR gate: $ADMIN_RESULT"; exit 1; }
           [ "$CHECKOUT_RESULT" = "success" ] || { echo "::error::Checkout regression gate: $CHECKOUT_RESULT"; exit 1; }
+          [ "$SUBSCRIPTION_RESULT" = "success" ] || { echo "::error::Subscription action gate: $SUBSCRIPTION_RESULT"; exit 1; }
           if [ "$LIVE_REQUESTED" = "true" ]; then
             [ "$SHOPIFY_RESULT" = "success" ] || { echo "::error::Live Shopify FTR gate: $SHOPIFY_RESULT"; exit 1; }
             echo "BACKEND RELEASE GATE CLEARED INCLUDING LIVE SHOPIFY"

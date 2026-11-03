@@ -1,5 +1,16 @@
 fly.toml
 Dockerfile
 .dockerignore
-node_modules
 .git
+**/.git
+node_modules
+**/node_modules
+# Private credentials and durable local test state must never reach the builder.
+**/.env
+**/.env.*
+**/.loop*
+# Fixtures can contain customer addresses; production does not need test assets.
+rewards/test
+**/test-results
+**/playwright-report
+**/npm-debug.log*

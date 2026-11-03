@@ -10,7 +10,13 @@
     "test:admin-acceptance": "node --test test/admin-webhook.acceptance.test.js",
     "test:shopify-sync": "node --test test/shopify-sync.unit.test.js",
     "test:shopify-sync:integration": "SHOPIFY_SYNC_INTEGRATION=1 node --test --test-concurrency=1 test/shopify-sync.integration.test.js",
-    "test": "node --test test/*.unit.test.js"
+    "test": "node --test test/*.unit.test.js",
+    "test:subscriptions": "node --test test/loop-*.unit.test.js test/subscription-actions.unit.test.js test/reschedule-preflight.unit.test.js test/subscription-theme-assets.unit.test.js",
+    "test:subscriptions:integration": "node --test test/loop-actions.integration.test.js",
+    "test:subscriptions:e2e": "playwright test",
+    "test:subscriptions:live": "node scripts/test-loop-actions-live.js",
+    "test:subscriptions:db": "node scripts/start-loop-test-database.js",
+    "test:subscriptions:all": "npm test && npm run test:subscriptions:integration && npm run test:subscriptions:e2e"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -21,5 +27,9 @@
   },
   "engines": {
     "node": ">=22.12.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "mongodb-memory-server": "^11.3.0"
   }
 }

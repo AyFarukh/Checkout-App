@@ -1,0 +1,9 @@
+# Subscription production release
+
+User approved launching supported subscription actions without Gift. Keep the existing app, Fly configuration, customer proxy authentication, durable ledger and design.
+
+1. Add failing production authorization tests: explicit production flag plus exact Loop merchant required; a signed customer may change only their own subscription; inactive installations, foreign customers/merchants, invalid IDs and path traversal fail closed. Preserve the existing local test allowlist. Status reads remain possible after disabling writes. Exercise all 11 supported actions through production mode using the local HTTP provider, Mongo and signed routes, never real production writes.
+2. Centralize the action access policy and use it in the executor, transport write guard and storefront capabilities. Production configuration defaults off. Do not widen local test access. Gift is disabled in the UI and rejected by the API.
+3. Run unit, HTTP/Mongo integration, browser and admin acceptance checks; review independently, fix findings and rerun affected checks. Pin the reviewed companion theme assets. Publish feature branch commits and require CI success.
+4. Inspect integration targets and release access before merging/deploying. User authorization covers production release, but unavailable Fly/Shopify access or unverifiable deployment targets must be reported accurately. Never substitute an unrelated store or publish an unverified whole theme. Preserve active test subscription 42347174 and its billing state. No order-now/cancellation smoke writes to real customers.
+5. Record operator live one-time execute/status/replay evidence. Provide exact release/rollback commands if deployment access is missing. Do not claim production is live before verified deployment and signed-in acceptance.
