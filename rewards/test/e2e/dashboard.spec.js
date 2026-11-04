@@ -58,13 +58,13 @@ test('unknown result persists through reload and never offers a second write',as
  await d.getByRole('button',{name:'Review change'}).click();await d.getByRole('button',{name:'Confirm change'}).click();
  await expect(d.getByRole('button',{name:'Check status'})).toBeVisible();
  await d.getByRole('button',{name:'Check status'}).click();await page.reload();
- await expect(page.getByText(/previous change is awaiting verification/i)).toBeVisible();
+ await expect(page.getByText(/previous change is awaiting confirmation/i)).toBeVisible();
  expect(calls.filter(c=>c.path.endsWith('action-execute'))).toHaveLength(1);
 });
 test('gift is unavailable, cannot open a form and sends no mutation',async({page})=>{
  const calls=await setup(page);const gift=page.getByRole('button',{name:'Gift',exact:true});await expect(gift).toBeDisabled();
  await expect(gift).toHaveAttribute('title','Gift is currently unavailable.');
- await expect(page.getByText(/Gift orders are unavailable/)).toBeVisible();await expect(page.getByRole('dialog')).toHaveCount(0);expect(calls).toHaveLength(0);
+ await expect(page.getByText(/Gifting is currently unavailable/)).toBeVisible();await expect(page.getByRole('dialog')).toHaveCount(0);expect(calls).toHaveLength(0);
 });
 test('escape closes dialog and returns focus to trigger',async({page})=>{
  await setup(page);const trigger=page.getByRole('button',{name:'Delay',exact:true});await trigger.click();await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0);await expect(trigger).toBeFocused();
@@ -109,7 +109,7 @@ test('pending outcomes remain isolated when switching subscriptions',async({page
  await page.getByRole('button',{name:'Skip next order',exact:true}).click();let dialog=page.getByRole('dialog');
  await dialog.getByRole('button',{name:'Review change'}).click();await dialog.getByRole('button',{name:'Confirm change'}).click();
  await expect(dialog.getByRole('button',{name:'Check status'})).toBeVisible();await dialog.getByRole('button',{name:'Close',exact:true}).click();
- await choose('42347175').click();await expect(page.getByText(/previous change is awaiting verification/i)).toHaveCount(0);
+ await choose('42347175').click();await expect(page.getByText(/previous change is awaiting confirmation/i)).toHaveCount(0);
  await page.getByRole('button',{name:'Order notes',exact:true}).click();dialog=page.getByRole('dialog');
  await expect(dialog.getByRole('button',{name:'Check status'})).toBeHidden();await dialog.getByRole('button',{name:'Close',exact:true}).click();
  await choose('42347174').click();await page.getByRole('button',{name:'Skip next order',exact:true}).click();dialog=page.getByRole('dialog');
@@ -150,10 +150,10 @@ test('order schedule and history load only for the selected subscription and can
 });
 test('read-only deployment explains unavailable changes and never offers an executable action',async({page})=>{
  const calls=await setup(page,{mutationsEnabled:false});
- await expect(page.getByText('Subscription changes are currently disabled. You can still view your details and orders.')).toBeVisible();
+ await expect(page.getByText('Changes to this subscription are currently unavailable. You can still view your details and orders.')).toBeVisible();
  await expect(page.getByRole('button',{name:'Order now',exact:true})).toBeDisabled();
  await expect(page.getByRole('button',{name:'Edit products',exact:true})).toBeDisabled();
- await expect(page.getByText(/Gift orders are unavailable/)).toBeVisible();
+ await expect(page.getByText(/Gifting is currently unavailable/)).toBeVisible();
  expect(calls).toHaveLength(0);
 });
 test('mobile subscription cards fit the viewport and return to the account portal',async({page})=>{
@@ -175,7 +175,7 @@ test('read-only mode still permits checking an existing pending request without 
 
 test('missing capability fields keep the dashboard read-only',async({page})=>{
  const calls=await setup(page,{omitCapabilities:true});
- await expect(page.getByText('Subscription changes are currently disabled. You can still view your details and orders.')).toBeVisible();
+ await expect(page.getByText('Changes to this subscription are currently unavailable. You can still view your details and orders.')).toBeVisible();
  await expect(page.getByRole('button',{name:'Skip next order',exact:true})).toBeDisabled();expect(calls).toHaveLength(0);
 });
 
@@ -246,4 +246,29 @@ for(const width of [1280,390])test(`dialog controls have readable default colors
  await confirm.click();await page.mouse.move(0,0);const check=dialog.getByRole('button',{name:'Check status',exact:true});
  await expect(check).toBeVisible();await expect(check).toHaveCSS('background-color','rgb(255, 255, 255)');await expect(check).toHaveCSS('color','rgb(23, 59, 40)');
  await expect(dialog.getByRole('button',{name:'Close',exact:true})).toHaveCSS('color','rgb(23, 59, 40)');
+});
+
+test('customer copy explains payment and cancellation without implementation terms',async({page})=>{
+ await setup(page);
+ for(const [action,pattern] of [['reschedule',/future order dates will adjust to the new schedule/i],['delay',/future order dates will adjust to the new schedule/i],['order-now',/payment may be taken as soon as you confirm/i],['cancel',/orders already placed will not be cancelled/i],['pause',/contact support when you are ready to resume/i],['edit-products',/contact support/i]]){
+  await page.getByRole('button',{name:labels[action],exact:true}).first().click();const dialog=page.getByRole('dialog');
+  await expect(dialog).toContainText(pattern);await expect(dialog).not.toContainText(/Loop|API|authorized test|request key/i);
+  await dialog.getByRole('button',{name:'Close',exact:true}).click();
+ }
+});
+test('customer copy keeps unknown outcomes pending without exposing provider diagnostics',async({page})=>{
+ const calls=await setup(page,{unknown:true});await page.getByRole('button',{name:'Order notes',exact:true}).click();const dialog=page.getByRole('dialog');
+ await dialog.getByLabel('Order note',{exact:true}).fill('Customer note');await dialog.getByRole('button',{name:'Review change',exact:true}).click();
+ await expect(dialog).toContainText('Please review your changes, then select Confirm change to continue.');
+ let submitted,sends=0;await page.route('**/action-execute',route=>{submitted=route.request().postDataJSON();sends++;return route.fulfill({status:202,json:{ok:false,applied:false,verified:false,code:'ACTION_OUTCOME_UNKNOWN',message:'Loop API request key private-provider-diagnostic'}});});
+ await dialog.getByRole('button',{name:'Confirm change',exact:true}).click();
+ await expect(dialog).toContainText('We are still confirming your update. Check its status before making another change.');
+ await expect(dialog).not.toContainText(/Loop|API|request key|private-provider-diagnostic/);await expect(dialog.getByRole('button',{name:'Check status',exact:true})).toBeVisible();await expect(dialog.getByRole('button',{name:'Confirm change',exact:true})).toBeHidden();
+ const saved=await page.evaluate(()=>JSON.parse(localStorage.getItem('ftr-subscription-pending:42347174')));expect(saved.requestKey).toBe(submitted.requestKey);
+ await dialog.getByRole('button',{name:'Check status',exact:true}).click();await expect.poll(()=>calls.filter(c=>c.path.endsWith('action-status')).length).toBe(1);expect(calls.find(c=>c.path.endsWith('action-status')).body.requestKey).toBe(submitted.requestKey);expect(sends).toBe(1);
+});
+test('customer copy describes gifting availability and plural delivery frequency',async({page})=>{
+ await setup(page,{subscriptions:[{...baseSubscription(),billingPolicy:{interval:'MONTH',intervalCount:3}}]});
+ await expect(page.getByText('Gifting is currently unavailable.',{exact:true})).toBeVisible();await expect(page.getByText('Delivery every 3 months',{exact:true}).first()).toBeVisible();
+ await expect(page.locator('.ftr-sub__main')).not.toContainText(/gift-order API|custom dashboard|Loop/);
 });

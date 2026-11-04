@@ -1,12 +1,50 @@
-(()=>{'use strict';const root=document.querySelector('[id^="ftr-subscription-dashboard-"]');if(!root||!root.querySelector('.ftr-sub__loading'))return;const main=root.querySelector('.ftr-sub__main'),endpoint=root.dataset.endpoint;const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=String(text);return n};const add=(parent,...children)=>{for(const child of children)if(child)parent.append(child);return parent};const pick=(o,...keys)=>keys.map(k=>o?.[k]).find(v=>v!==undefined&&v!==null&&v!=='');const number=v=>{if(v==null||v==='')return null;if(typeof v==='object')return number(pick(v,'amount','value','price','total'));const n=Number(String(v).replace(/[^0-9.-]/g,''));return Number.isFinite(n)?n:null};const money=(v,c)=>v==null?'Price unavailable':new Intl.NumberFormat('en-US',{style:'currency',currency:c||'USD'}).format(v);const date=v=>{if(v===null||v===undefined||v==='')return'Not scheduled';const raw=String(v);const d=(typeof v==='number'||/^\d{10,13}$/.test(raw))?new Date(Number(v)*(Number(v)<1e12?1000:1)):new Date(v);return Number.isNaN(d.getTime())?'Not scheduled':d.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric',timeZone:'UTC'})};const img=v=>typeof v==='string'?v:pick(v,'url','src','originalSrc')||'';const lines=s=>[s.lines,s.lineItems,s.subscriptionLines,s.items,s.products,s.subscriptionProducts].find(Array.isArray)||[];const card=(title,id)=>{const n=el('section','ftr-sub__card');if(id)n.id=id;if(title){const h=el('h2','',title),name=({'Your subscription':'box','Payment details':'card','Shipping address':'truck'})[title];if(name)h.prepend(icon(name));add(n,h);}return n};const btn=(label,primary=false,action=label)=>{const b=el('button','ftr-sub__btn'+(primary?' ftr-sub__btn--primary':''),label);b.type='button';const symbol=({'Order now':'cart','Gift':'gift','Skip':'skip','Skip next order':'skip','Reschedule':'calendar','Delay':'clock'})[label];if(symbol)b.prepend(icon(symbol));if(mutationAccess===false&&actionMap[action]&&actionMap[action]!=='gift'){b.disabled=true;b.title='Subscription changes are currently disabled.';}if(actionMap[action]==='gift'){b.disabled=true;b.title='Gift is currently unavailable.';return b;}b.addEventListener('click',()=>confirmAction(action));return b};let selectedSubscription=null,mutationAccess=false;
+(()=>{'use strict';const root=document.querySelector('[id^="ftr-subscription-dashboard-"]');if(!root||!root.querySelector('.ftr-sub__loading'))return;const main=root.querySelector('.ftr-sub__main'),endpoint=root.dataset.endpoint;const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=String(text);return n};const add=(parent,...children)=>{for(const child of children)if(child)parent.append(child);return parent};const pick=(o,...keys)=>keys.map(k=>o?.[k]).find(v=>v!==undefined&&v!==null&&v!=='');const number=v=>{if(v==null||v==='')return null;if(typeof v==='object')return number(pick(v,'amount','value','price','total'));const n=Number(String(v).replace(/[^0-9.-]/g,''));return Number.isFinite(n)?n:null};const money=(v,c)=>v==null?'Price unavailable':new Intl.NumberFormat('en-US',{style:'currency',currency:c||'USD'}).format(v);const date=v=>{if(v===null||v===undefined||v==='')return'Not scheduled';const raw=String(v);const d=(typeof v==='number'||/^\d{10,13}$/.test(raw))?new Date(Number(v)*(Number(v)<1e12?1000:1)):new Date(v);return Number.isNaN(d.getTime())?'Not scheduled':d.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric',timeZone:'UTC'})};const img=v=>typeof v==='string'?v:pick(v,'url','src','originalSrc')||'';const lines=s=>[s.lines,s.lineItems,s.subscriptionLines,s.items,s.products,s.subscriptionProducts].find(Array.isArray)||[];const card=(title,id)=>{const n=el('section','ftr-sub__card');if(id)n.id=id;if(title){const h=el('h2','',title),name=({'Your subscription':'box','Payment details':'card','Shipping address':'truck'})[title];if(name)h.prepend(icon(name));add(n,h);}return n};const btn=(label,primary=false,action=label)=>{const b=el('button','ftr-sub__btn'+(primary?' ftr-sub__btn--primary':''),label);b.type='button';const symbol=({'Order now':'cart','Gift':'gift','Skip':'skip','Skip next order':'skip','Reschedule':'calendar','Delay':'clock'})[label];if(symbol)b.prepend(icon(symbol));if(mutationAccess===false&&actionMap[action]&&actionMap[action]!=='gift'){b.disabled=true;b.title='Changes to this subscription are currently unavailable.';}if(actionMap[action]==='gift'){b.disabled=true;b.title='Gift is currently unavailable.';return b;}b.addEventListener('click',()=>confirmAction(action));return b};let selectedSubscription=null,mutationAccess=false;
 const actionMap={"Add one-time product":"edit-products","Manage next order":"reschedule","Order now":"order-now","Skip":"skip","Skip next order":"skip","Reschedule":"reschedule","Change next order":"reschedule","Delay":"delay","Change frequency":"frequency","Pause subscription":"pause","Cancel subscription":"cancel","Edit products":"edit-products","Edit subscription":"edit-products","Edit address":"edit-address","Gift":"gift","Order notes":"order-note","Discount code":"discount"};
+const actionDescriptions={
+ 'skip':'Skip your next order. Your subscription will continue with the following scheduled order.',
+ 'reschedule':'Choose a new processing date for your next order. Future order dates will adjust to the new schedule.',
+ 'delay':'Postpone your next order by the number of days selected. Future order dates will adjust to the new schedule.',
+ 'order-now':'Place your next order now using your saved payment method. Payment may be taken as soon as you confirm.',
+ 'frequency':'Choose how often you receive future subscription orders.',
+ 'pause':'Pause future subscription orders. Contact support when you are ready to resume.',
+ 'cancel':'Cancel this subscription and stop future subscription orders. Orders already placed will not be cancelled.',
+ 'edit-products':'Update the products and quantities in your subscription. For help with bundles, contact support.',
+ 'edit-address':'Update the shipping address for future subscription orders. For an order already placed, contact support.',
+ 'discount':'Apply a discount code to your subscription. Eligibility and discount combination rules apply.',
+ 'order-note':'Add instructions or preferences for future subscription orders.'
+};
+const pendingMessage='We are still confirming your update. Check its status before making another change.';
+const actionMessages={
+ ACTION_OUTCOME_UNKNOWN:pendingMessage,SUBSCRIPTION_ACTION_PENDING:pendingMessage,
+ LOOP_REJECTED:'We could not complete this change. Please check the details or contact support for help.',
+ NO_CHANGE:'Your subscription already matches these details. No change is needed.',
+ STALE_PREVIEW:'Your subscription details have changed. Refresh the page and review your update again.',
+ PREVIEW_EXPIRED:'Your review has expired. Please review the details again before confirming.',
+ INVALID_PREVIEW:'Please review your change again before confirming.',
+ SIGN_IN_REQUIRED:'Please sign in again to manage your subscription.',
+ STORE_NOT_AUTHORIZED:'Subscription management is temporarily unavailable. Please contact support.',
+ SUBSCRIPTION_NOT_OWNED:'This subscription is not available in your account. Please sign in to the correct account.',
+ SUBSCRIPTION_NOT_ACTIVE:'This subscription is not active. Contact support if you need help restarting it.',
+ LINE_NOT_OWNED:'This product is no longer in your subscription. Refresh the page to see your current products.',
+ VARIANT_NOT_ELIGIBLE:'This product is not available for the selected change. Please choose another product.',
+ NEXT_ORDER_UNAVAILABLE:'There is no upcoming order available for this change. Please contact support for help.',
+ BUNDLE_REQUIRES_LOOP_EDITOR:'Please contact support to update this bundle.',
+ LAST_LINE_REMOVAL_BLOCKED:'Keep at least one recurring product in your subscription, or choose Cancel subscription.',
+ GIFT_API_UNAVAILABLE:'Gifting is currently unavailable.',
+ LOOP_MUTATIONS_DISABLED:'Changes to this subscription are currently unavailable.',
+ TEST_ONLY:'Changes to this subscription are currently unavailable.',
+ ACTION_NOT_FOUND:'We could not find this update. Please contact support before submitting it again.',
+ IDEMPOTENCY_KEY_REUSED:pendingMessage
+};
+const customerMessage=result=>result.applied===true&&result.verified===true?'Your subscription has been updated.':actionMessages[result.code]||'We could not confirm this update. Check its status before making another change.';
+const deliveryFrequency=policy=>{const count=Number(policy.intervalCount||policy.interval_count||1),unit=String(policy.interval||'month').toLowerCase();return 'Delivery every '+(count===1?'':count+' ')+unit+(count===1?'':'s');};
 const pendingStorageKey=()=>`ftr-subscription-pending:${selectedSubscription?.id}`;
 let pending=null;
 function pendingRead(){try{return JSON.parse(localStorage.getItem(pendingStorageKey())||'null')}catch{return null}}
 function pendingWrite(value){try{if(value)localStorage.setItem(pendingStorageKey(),JSON.stringify(value));else localStorage.removeItem(pendingStorageKey());pending=value;return true}catch{return false}}
 async function actionRequest(path,body){
  const response=await fetch(endpoint+'/'+path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(45000)});
- if(!(response.headers.get('content-type')||'').includes('application/json'))throw Error('Unexpected subscription service response. Check the status before submitting again.');
+ if(!(response.headers.get('content-type')||'').includes('application/json'))throw Error('We could not confirm your update. Check its status before making another change.');
  const result=await response.json();return {response,result};
 }
 function confirmAction(label,oneTimeProduct){
@@ -32,7 +70,7 @@ function confirmAction(label,oneTimeProduct){
  };
  const review=el('button','ftr-sub__btn ftr-sub__btn--primary','Review change'),confirm=el('button','ftr-sub__btn ftr-sub__btn--primary','Confirm change'),check=el('button','ftr-sub__btn','Check status'),cancel=btnClose('Close',close);
  for(const b of [review,confirm,check])b.type='button';confirm.hidden=true;check.hidden=true;
- const invalidate=()=>{preview=null;confirm.hidden=true;review.hidden=false;status.textContent='Review your updated details before confirming.';};
+ const invalidate=()=>{preview=null;confirm.hidden=true;review.hidden=false;status.textContent='Review your changes before confirming.';};
  form.addEventListener('input',invalidate);form.addEventListener('change',invalidate);form.addEventListener('submit',e=>e.preventDefault());
  if(action==='order-now')field('preponeFutureOrder','Place an immediate order','checkbox',undefined,false);
  if(action==='pause')field('confirmPause','Confirm pause','checkbox',undefined,false);
@@ -59,8 +97,8 @@ function confirmAction(label,oneTimeProduct){
    const op=inputs.operation.value;inputs.lineId.disabled=op==='add';inputs.lineId.parentElement.hidden=op==='add';quantity.disabled=op==='remove';quantity.parentElement.hidden=op==='remove';
    variant.disabled=!['add','swap'].includes(op);variant.parentElement.hidden=variant.disabled;
    if(!variant.disabled&&!variant.options.length){
-    review.disabled=true;status.textContent='Loading subscription products…';
-    try{const {response,result}=await actionRequest('action-catalog',{subscriptionId:String(selectedSubscription.id)});if(!response.ok||!result.ok)throw Error('Unable to load eligible products.');for(const product of result.products||[]){const option=el('option','',product.title);option.value=product.id;variant.append(option);}status.textContent=variant.options.length?'Choose a product and review your change.':'No eligible products available.';}catch(error){status.textContent=error.message;}finally{review.disabled=false;}
+    review.disabled=true;status.textContent='Loading available products…';
+    try{const {response,result}=await actionRequest('action-catalog',{subscriptionId:String(selectedSubscription.id)});if(!response.ok||!result.ok)throw Error('We could not load available products. Please try again.');for(const product of result.products||[]){const option=el('option','',product.title);option.value=product.id;variant.append(option);}status.textContent=variant.options.length?'Choose a product and review your change.':'No products are currently available for this change.';}catch{status.textContent='We could not review these details. Please try again.';}finally{review.disabled=false;}
    }
   });
  }
@@ -71,7 +109,7 @@ function confirmAction(label,oneTimeProduct){
  }
  if(action==='discount')field('value','Discount code','text',undefined,'');
  if(action==='order-note')field('value','Order note','textarea',undefined,(Object.prototype.hasOwnProperty.call(selectedSubscription,'orderNote')?selectedSubscription.orderNote:selectedSubscription.note)||'',false);
- const note=el('p','ftr-sub__muted',action==='order-now'?'This places an order immediately and may charge your saved payment method.':action==='cancel'?'Cancellation stops future orders. Review carefully before confirming.':action==='pause'?'Pause until you resume through Loop.':oneTimeProduct?'Add this product to your next order only. It will not repeat in future orders. Loop sets the product price.':action==='edit-products'?'Add, swap, remove a product or change its quantity. Loop sets the selling plan price. Bundles require Loop’s editor.':'Review your details before confirming this change.');
+ const note=el('p','ftr-sub__muted',oneTimeProduct?'Add this product to your next order only. It will not be included in future orders.':actionDescriptions[action]||'Review your details before confirming this change.');
  add(actions,cancel,review,confirm,check);add(form,status);add(panel,el('h2','',label),note,form,actions);add(backdrop,panel);add(document.body,backdrop);
  function keys(e){
   if(e.key==='Escape'){e.preventDefault();close();}
@@ -82,7 +120,7 @@ function confirmAction(label,oneTimeProduct){
  }
  document.addEventListener('keydown',keys);backdrop.addEventListener('click',e=>{if(e.target===backdrop)close();});cancel.focus();
  const lock=()=>{review.hidden=true;confirm.hidden=true;check.hidden=false;for(const input of Object.values(inputs))input.disabled=true;};
- const resultMessage=result=>{status.textContent=result.message||result.code||'The change could not be verified.';};
+ const resultMessage=result=>{status.textContent=customerMessage(result);};
  function rejected(result){
   pendingWrite(null);requestKey=crypto.randomUUID();
   for(const input of Object.values(inputs))input.disabled=false;
@@ -95,7 +133,7 @@ function confirmAction(label,oneTimeProduct){
  async function applied(result){
   pendingWrite(null);review.hidden=true;confirm.hidden=true;check.hidden=true;resultMessage(result);
   try{const response=await fetch(endpoint,{credentials:'same-origin',headers:{Accept:'application/json'},cache:'no-store'});if(!response.ok)throw Error();show(await response.json());busy=false;close();}
-  catch{status.textContent='Your change was verified by Loop. Reload the page to refresh the dashboard.';}
+  catch{status.textContent='Your subscription has been updated. Refresh the page to see the latest details.';}
  }
  review.addEventListener('click',async()=>{
   if(busy||!action||!selectedSubscription||!mutationAccess||!form.reportValidity())return;
@@ -104,15 +142,15 @@ function confirmAction(label,oneTimeProduct){
   try{
    const {response,result}=await actionRequest('action-preview',{subscriptionId:String(selectedSubscription.id),action,payload,requestKey});
    if(!response.ok||!result.ok||!result.previewToken){resultMessage(result);return;}
-   preview={payload:JSON.stringify(payload),token:result.previewToken};review.hidden=true;confirm.hidden=false;status.textContent=(result.message||'Review and confirm.')+(result.requestedBillingDateEpoch?' New billing date: '+date(result.requestedBillingDateEpoch)+'.':'');
-  }catch(error){status.textContent=error.message;}finally{busy=false;review.disabled=false;}
+   preview={payload:JSON.stringify(payload),token:result.previewToken};review.hidden=true;confirm.hidden=false;status.textContent='Please review your changes, then select Confirm change to continue.'+(result.requestedBillingDateEpoch?' New order processing date: '+date(result.requestedBillingDateEpoch)+'.':'');
+  }catch{status.textContent='We could not review these details. Please try again.';}finally{busy=false;review.disabled=false;}
  });
  confirm.addEventListener('click',async()=>{
   if(busy||!preview||!mutationAccess)return;
   if(JSON.stringify(readPayload())!==preview.payload){invalidate();return;}
   const body={subscriptionId:String(selectedSubscription.id),action,payload:readPayload(),requestKey,previewToken:preview.token,confirm:true};
-  if(!pendingWrite({subscriptionId:body.subscriptionId,requestKey,action})){status.textContent='Browser storage is unavailable. Enable it before making a subscription change.';return;}
-  busy=true;confirm.disabled=true;for(const input of Object.values(inputs))input.disabled=true;status.textContent='Submitting and verifying with Loop…';
+  if(!pendingWrite({subscriptionId:body.subscriptionId,requestKey,action})){status.textContent='Please allow browser storage to save your update securely, then try again.';return;}
+  busy=true;confirm.disabled=true;for(const input of Object.values(inputs))input.disabled=true;status.textContent='Updating your subscription. Please wait…';
   try{
    const {result}=await actionRequest('action-execute',body);
    if(result.applied===true&&result.verified===true){await applied(result);return;}
@@ -121,18 +159,18 @@ function confirmAction(label,oneTimeProduct){
    if(result.retrySafe===true||result.operationState==='rejected'){
     rejected(result);
    }else{lock();resultMessage(result);}
-  }catch(error){lock();status.textContent='No confirmed result was received. Check status before making another change.';}
+  }catch(error){lock();status.textContent='We are still confirming your update. Check its status before making another change.';}
   finally{busy=false;confirm.disabled=false;}
  });
  check.addEventListener('click',async()=>{
   if(busy||!pending)return;busy=true;check.disabled=true;
-  try{const {result}=await actionRequest('action-status',pending);if(result.applied===true&&result.verified===true)await applied(result);else if(result.operationState==='rejected')rejected(result);else resultMessage(result);}catch{status.textContent='Unable to check status. Your original request key is preserved.';}finally{busy=false;check.disabled=false;}
+  try{const {result}=await actionRequest('action-status',pending);if(result.applied===true&&result.verified===true)await applied(result);else if(result.operationState==='rejected')rejected(result);else resultMessage(result);}catch{status.textContent='We could not check your update yet. Please check its status again before making another change.';}finally{busy=false;check.disabled=false;}
  });
  pending=pendingRead();
- if(pending){lock();status.textContent='A previous change is awaiting verification. Check its status before making another change.';}
- else if(action==='gift'){review.hidden=true;status.textContent='Gift is currently unavailable in this dashboard.';}
- else if(!mutationAccess){review.hidden=true;status.textContent='Subscription changes are currently disabled.';}
- else if(!action){review.hidden=true;status.textContent='Manage this option through your Shopify account or the Loop customer portal.';}
+ if(pending){lock();status.textContent='Your previous change is awaiting confirmation. Check its status before making another change.';}
+ else if(action==='gift'){review.hidden=true;status.textContent='Gifting is currently unavailable.';}
+ else if(!mutationAccess){review.hidden=true;status.textContent='Changes to this subscription are currently unavailable.';}
+ else if(!action){review.hidden=true;status.textContent='Manage this option in your account, or contact support for help.';}
 }
 
 function btnClose(t,fn){const b=el('button','ftr-sub__btn ftr-sub__btn--primary',t);b.type='button';b.addEventListener('click',fn);return b}
@@ -164,7 +202,7 @@ function orderView(subscriptionId,kind){
     add(info,el('strong','',order.shopifyOrderNumber?'Order #'+order.shopifyOrderNumber:'Order #'+order.id),el('p','ftr-sub__muted',date(order.billingDate)));
     add(row,info,el('span','ftr-sub__badge',order.status||'Status unavailable'));add(body,row);
    }
-   if(result.truncated)add(body,el('p','ftr-sub__muted','Showing the first 100 orders returned by Loop. Visit your account for further order details.'));
+   if(result.truncated)add(body,el('p','ftr-sub__muted','Showing up to 100 orders. Visit your account to see more.'));
    loaded=true;
   }catch{
    if(!details.isConnected)return;
@@ -198,9 +236,9 @@ function show(data,preferredId=selectedSubscription?.id){
  pending=pendingRead();if(pending){
   const warning=el('div','ftr-sub__notice'),checkPending=el('button','ftr-sub__btn','Check pending change');checkPending.type='button';
   checkPending.addEventListener('click',()=>confirmAction(Object.entries(actionMap).find(([,action])=>action===pending.action)?.[0]||'Previous change'));
-  add(warning,el('p','','A previous change is awaiting verification. Check its status before making another change.'),checkPending);add(main,warning);
+  add(warning,el('p','','Your previous change is awaiting confirmation. Check its status before making another change.'),checkPending);add(main,warning);
  }
- if(!mutationAccess)add(main,el('p','ftr-sub__notice','Subscription changes are currently disabled. You can still view your details and orders.'));
+ if(!mutationAccess)add(main,el('p','ftr-sub__notice','Changes to this subscription are currently unavailable. You can still view your details and orders.'));
  const items=lines(s),currency=pick(s,'currencyCode','currency')||'USD',freq=s.billingPolicy||s.frequency||{},address=s.shippingAddress||s.deliveryAddress||{};
  const lp=l=>number(pick(l,'discountedPrice','price','sellingPrice','linePrice','amount','unitPrice','sellingPriceAmount','discountedUnitPrice'))??number(pick(l.variant,'price','sellingPrice'));
  const total=number(pick(s,'totalLineItemDiscountedPrice','totalLineItemPrice','totalPrice','subtotalPrice','price','billingAmount','nextOrderTotal','nextBillingAmount'))??number(pick(s.nextOrder,'total','totalPrice','amount'))??(items.length&&items.every(l=>lp(l)!=null)?items.reduce((n,l)=>n+lp(l)*Number(l.quantity||1),0):null);
@@ -213,17 +251,17 @@ function show(data,preferredId=selectedSubscription?.id){
  add(grid,info,hero);add(nextCard,grid);const actions=el('div','ftr-sub__actions');
  for(const [label,primary]of [['Manage next order',true],['Order now'],['Gift'],['Skip'],['Reschedule'],['Delay']])add(actions,btn(label,primary));
  let chargeNotice;const lastCharge=pick(s,'lastOrderDate','lastBillingDate','lastChargedAt');if(lastCharge){const notice=el('p','ftr-sub__notice','Your last order was charged on '+date(lastCharge)+'.');notice.prepend(icon('clock'));chargeNotice=notice;}
- add(nextCard,actions,chargeNotice,el('p','ftr-sub__muted','Gift orders are unavailable in this custom dashboard because Loop does not provide a gift-order API.'));add(main,nextCard);
+ add(nextCard,actions,chargeNotice,el('p','ftr-sub__muted','Gifting is currently unavailable.'));add(main,nextCard);
  const columns=el('div','ftr-sub__columns'),sub=card('Your subscription','ftr-subscription');
  for(const item of items){
   const row=el('div','ftr-sub__product'),imageUrl=img(pick(item,'imageUrl','image','productImage','variantImage'));
   if(imageUrl){const image=el('img');image.src=imageUrl;image.loading='lazy';image.alt='';add(row,image);}else add(row,el('div','ftr-sub__product-placeholder'));
   const detail=el('div');add(detail,el('h3','',pick(item,'productTitle','title','name')||'Subscription product'),el('p','',money(lp(item),currency)+' · Quantity '+(item.quantity||1)));if(item.isOneTimeAdded===true)add(detail,el('p','ftr-sub__badge','One-time · Next order only'));add(row,detail);add(sub,row);
  }
- add(sub,el('p','ftr-sub__muted','Delivery every '+(freq.intervalCount||freq.interval_count||1)+' '+String(freq.interval||'month').toLowerCase()),btn('Edit subscription'));
+ add(sub,el('p','ftr-sub__muted',deliveryFrequency(freq)),btn('Edit subscription'));
  const note=Object.prototype.hasOwnProperty.call(s,'orderNote')?s.orderNote:s.note;
  const discounts=(s.discounts||[]).map(d=>d?.node||d).filter(d=>d&&d.isActive!==false&&!d.rejectionReason).map(d=>pick(d,'title','code','discountCode')||'Subscription discount').join(', ');
- add(sub,detailRow('Order notes',note||'Add your note.','Order notes','note','subscription-note'),detailRow('Discount code',discounts||'No active discounts.','Discount code','tag','subscription-discounts'),detailRow('Subscription plan','Deliver every '+(freq.intervalCount||1)+' '+String(freq.interval||'month').toLowerCase(),'Change frequency','calendar'));
+ add(sub,detailRow('Order notes',note||'Add your note.','Order notes','note','subscription-note'),detailRow('Discount code',discounts||'No active discounts.','Discount code','tag','subscription-discounts'),detailRow('Subscription plan',deliveryFrequency(freq),'Change frequency','calendar'));
  const orders=el('div','ftr-sub__orders');orders.id='ftr-orders';add(orders,orderView(s.id,'schedule'),orderView(s.id,'history'),link('View all orders in account',accountUrl));add(sub,orders);
  const side=el('div','ftr-sub__stack'),shipping=card('Shipping address','ftr-address');
  const fullName=[address.firstName,address.lastName].filter(Boolean).join(' '),city=[address.city,address.province||address.provinceCode,address.zip].filter(Boolean).join(', ');
@@ -237,9 +275,9 @@ function show(data,preferredId=selectedSubscription?.id){
   for(const product of recommended.querySelectorAll('[data-variant-ids]')){try{if(JSON.parse(product.dataset.variantIds).some(id=>existing.has(String(id))))product.remove();}catch{product.remove();}}
   for(const tile of [...recommended.children].slice(5))tile.remove();
   for(const product of recommended.querySelectorAll('[data-add-once]')){const tile=product.closest('[data-variants]');let variants=[];try{variants=JSON.parse(tile.dataset.variants).filter(v=>/^\d+$/.test(String(v.id)));}catch{}if(!variants.length){product.disabled=true;continue;}const title=tile.querySelector('h3')?.textContent||'Product';product.setAttribute('aria-label','Add '+title+' once');product.disabled=!mutationAccess;product.addEventListener('click',()=>confirmAction('Add one-time product',{variants}));}
-  if(recommended.children.length){const rec=card('Complete your routine'),products=el('div','ftr-sub__recommend');add(products,recommended);add(rec,el('p','ftr-sub__muted','Goes well with your next order. Add once, without changing future orders.'),link('See more products',root.dataset.shopUrl||'/collections/all'),products);add(main,rec);}
+  if(recommended.children.length){const rec=card('Complete your routine'),products=el('div','ftr-sub__recommend');add(products,recommended);add(rec,el('p','ftr-sub__muted','Add something extra to your next order, with no ongoing commitment.'),link('See more products',root.dataset.shopUrl||'/collections/all'),products);add(main,rec);}
  }
- const manage=card('Manage your subscription');add(manage,el('p','ftr-sub__muted','Need to make a change? You are in control.'));const mg=el('div','ftr-sub__manage');
+ const manage=card('Manage your subscription');add(manage,el('p','ftr-sub__muted','Update your products, schedule or subscription preferences.'));const mg=el('div','ftr-sub__manage');
  for(const [symbol,label,description]of [['edit','Edit products','Change what you receive'],['refresh','Change frequency','Choose how often'],['calendar','Change next order','Pick another date'],['cancel','Skip next order','Skip without cancelling'],['pause','Pause subscription','Take a temporary break'],['cancel','Cancel subscription','End your subscription']]){
   const b=el('button',label.startsWith('Cancel')?'ftr-sub__danger':'');b.type='button';b.setAttribute('aria-label',label);b.disabled=!mutationAccess;
   const symbolWrap=el('span','ftr-sub__manage-icon');add(symbolWrap,icon(symbol));add(b,symbolWrap,el('strong','',label),el('small','',description));b.addEventListener('click',()=>confirmAction(label));add(mg,b);
