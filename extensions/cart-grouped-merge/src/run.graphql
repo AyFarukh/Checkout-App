@@ -7,10 +7,14 @@ query RunInput {
     lines {
       id
       quantity
-      parentMarker: attribute(key: "_parent") { value }
-      setId: attribute(key: "_set") { value }
-      bundleId: attribute(key: "_bundleId") { value }
-      parentVariantId: attribute(key: "_parent_product_id") { value }
+      parentMarker: attribute(key: "_ftr_test_parent") { value }
+      setId: attribute(key: "_ftr_test_set") { value }
+      bundleId: attribute(key: "_ftr_test_bundle_id") { value }
+      parentVariantId: attribute(key: "_ftr_test_parent_variant_id") { value }
+      legacyParent: attribute(key: "_parent") { value }
+      legacySet: attribute(key: "_set") { value }
+      legacyParentVariant: attribute(key: "_parent_product_id") { value }
+      legacyBundle: attribute(key: "_bundleId") { value }
       cost { amountPerQuantity { amount } }
       sellingPlanAllocation { sellingPlan { id } }
       merchandise {

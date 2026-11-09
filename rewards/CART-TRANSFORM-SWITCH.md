@@ -2,9 +2,15 @@
 
 ## Test alongside the old registration — default off
 
+For theme property migration, see [CART-TRANSFORM-THEME-TEST.md](CART-TRANSFORM-THEME-TEST.md).
+Our registration was confirmed by the merchant as `gid://shopify/CartTransform/138019188`
+for Function `01a144b1-43fc-759c-be7e-f6efaf9fa299`. Do not create a duplicate.
+The mutation that created it supplied no test configuration.
+
 The replacement is now test-only. Keep every existing registration, including
 `40894836`, while testing. Do not run the removal mutation below during testing.
-No publishing, registration, configuration mutation or deletion has been performed.
+Codex has not published, registered, changed live configuration or deleted any registration.
+The merchant registered our Function separately, as recorded above.
 
 Two independent conditions are required before our Function emits operations:
 
@@ -71,8 +77,9 @@ the old registration for a fully isolated checkout test.
 ### Current bundle compatibility blocker
 
 The storefront example supplied after the initial implementation contains four
-children and no `_bundleId`. The current selection validator still requires three
-picks and matching `_bundleId`; the test switch does not resolve that mismatch.
+children. The current selection validator still requires three picks; the test
+switch and new test properties do not resolve that quantity mismatch. The
+redundant bundle ID is now optional; the new `_ftr_test_set` groups test lines.
 Do not use a zero cart price from the old Function as proof the replacement works.
 We need the theme bundle builder and its trusted block/quantity configuration to
 support variable selection blocks before a real bundle test or production cutover.
@@ -115,9 +122,12 @@ configuration, and subscription lines produce no price updates for that set.
 The parent keeps its catalog price; validated children get a per-unit price of
 zero. Invalid sets do not prevent independent valid sets from being processed.
 
-Existing line properties are retained: `_parent=true` on the parent, matching
-`_set`/`_bundleId` values of the form `set-...`, and `_parent_product_id` containing
-the parent's numeric VARIANT ID on each child. Block names supplied in cart
+Test-only properties are required: `_ftr_test_parent=true` on the parent, matching
+`_ftr_test_set` values of the form `set-...`, and `_ftr_test_parent_variant_id`
+containing the parent's numeric VARIANT ID on each child. `_ftr_test_bundle_id`
+is optional; if present it must match `_ftr_test_set`. Test sets carrying any
+legacy `_parent`, `_set`, `_parent_product_id`, or `_bundleId` are rejected.
+Legacy-only lines are ignored by our Function. Block names supplied in cart
 properties are never trusted as authorization. Eligibility uses Shopify product
 identity, not client-supplied product labels or IDs.
 
@@ -154,7 +164,7 @@ supported: all three blocks are required, as specified for this implementation.
 
 ## Verification performed
 
-- 48 Function unit cases passed (authorization, overlaps, quantities, malformed
+- 57 Function unit cases passed (authorization, overlaps, quantities, malformed
   configuration, independent sets and unsupported subscription lines).
 - The new input query validated against the 2026-07 Cart Transform schema.
 - The complete Shopify app build passed.

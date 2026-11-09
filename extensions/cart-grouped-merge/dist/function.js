@@ -33,7 +33,7 @@ function fillsEveryBlock(picks, blocks, index = 0, used = 0) {
   return false;
 }
 function priceSet(lines, setId) {
-  if (lines.some((line) => line.bundleId?.value !== setId) || new Set(lines.map((line) => line.id)).size !== lines.length) return [];
+  if (lines.some((line) => line.bundleId != null && line.bundleId.value !== setId || [line.legacyParent, line.legacySet, line.legacyParentVariant, line.legacyBundle].some((attribute) => attribute != null)) || new Set(lines.map((line) => line.id)).size !== lines.length) return [];
   const parents = lines.filter((line) => line.parentMarker?.value === "true");
   if (parents.length !== 1) return [];
   const parent = parents[0];

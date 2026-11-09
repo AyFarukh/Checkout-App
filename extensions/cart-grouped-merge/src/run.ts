@@ -18,6 +18,10 @@ type Line = {
   setId?: {value?: string} | null;
   bundleId?: {value?: string} | null;
   parentVariantId?: {value?: string} | null;
+  legacyParent?: {value?: string} | null;
+  legacySet?: {value?: string} | null;
+  legacyParentVariant?: {value?: string} | null;
+  legacyBundle?: {value?: string} | null;
   cost?: {amountPerQuantity?: {amount?: string}};
   sellingPlanAllocation?: unknown;
   merchandise?: {
@@ -56,7 +60,11 @@ function fillsEveryBlock(picks: string[], blocks: Set<string>[], index = 0, used
 }
 
 function priceSet(lines: Line[], setId: string): PriceOperation[] {
-  if (lines.some(line => line.bundleId?.value !== setId) ||
+  // Test sets must not carry the legacy properties consumed by the old app.
+  // An optional test bundle ID may duplicate the set ID but never contradict it.
+  if (lines.some(line => (line.bundleId != null && line.bundleId.value !== setId) ||
+      [line.legacyParent, line.legacySet, line.legacyParentVariant, line.legacyBundle]
+        .some(attribute => attribute != null)) ||
       new Set(lines.map(line => line.id)).size !== lines.length) return [];
   const parents = lines.filter(line => line.parentMarker?.value === 'true');
   if (parents.length !== 1) return [];

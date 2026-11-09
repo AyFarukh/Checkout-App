@@ -1,3 +1,4 @@
+import {readFileSync} from 'node:fs';
 import {describe,expect,it} from 'vitest';
 import {run} from './run';
 const variant=(id:string)=>`gid://shopify/ProductVariant/${id}`;
@@ -46,4 +47,42 @@ describe('default-off test rollout',()=>{
  it.each([null,{value:'false'},{value:'TRUE'},{value:'1'}])('leaves ordinary and non-opted-in carts unchanged %#',testFlag=>expect(run({...input(lines()),cart:{lines:lines(),testFlag}} as never)).toEqual({operations:[]}));
  it('processes only an opted-in cart when the app-owned switch is enabled',()=>expect(execute(lines())).toEqual(expected));
  it('keeps authorization checks active for opted-in carts',()=>expect(execute([parent(),child('999'),child('3'),child('4')])).toEqual({operations:[]}));
+});
+
+
+// Project raw storefront properties using the actual input query bindings, so
+// tests catch accidentally querying the legacy keys instead of test-only keys.
+function executeProperties(lines: Array<{line: ReturnType<typeof parent> | ReturnType<typeof child>; properties: Record<string,string>}>) {
+ const query=readFileSync(new URL('./run.graphql',import.meta.url),'utf8');
+ const bindings=[...query.matchAll(/(\w+): attribute\(key: "([^"]+)"\)/g)];
+ const projected=lines.map(({line,properties})=>{
+  const result:Record<string,unknown>={...line};
+  for(const [,alias,key] of bindings) result[alias]=key in properties?{value:properties[key]}:null;
+  return result;
+ });
+ return execute(projected);
+}
+const testProps=(isParent=false)=>isParent?{_ftr_test_set:set,_ftr_test_parent:'true'}:{_ftr_test_set:set,_ftr_test_parent_variant_id:'1'};
+const legacyProps=(isParent=false)=>isParent?{_set:set,_parent:'true',_bundleId:set}:{_set:set,_parent_product_id:'1',_bundleId:set};
+const rawTestSet=()=>[parent(),...selections()].map((line,i)=>({line,properties:testProps(i===0)}));
+
+describe('isolated test property contract',()=>{
+ it('prices test-only properties without requiring a redundant bundle ID',()=>expect(executeProperties(rawTestSet())).toEqual(expected));
+ it('ignores legacy-only lines even when the test cart switch is enabled',()=>expect(executeProperties([parent(),...selections()].map((line,i)=>({line,properties:legacyProps(i===0)})))).toEqual({operations:[]}));
+ it('keeps legacy and test sets separate even with the same set value',()=>{
+  const legacy=[parent(),...selections()].map((line,i)=>({line:{...line,id:line.id+'-legacy'},properties:legacyProps(i===0)}));
+  expect(executeProperties([...rawTestSet(),...legacy])).toEqual(expected);
+ });
+ it.each(['_set','_parent','_parent_product_id','_bundleId'])('rejects mixed test and legacy keys atomically (%s)',key=>{
+  const lines=rawTestSet();lines[1].properties={...lines[1].properties,[key]:key==='_parent'?'true':set};
+  expect(executeProperties(lines)).toEqual({operations:[]});
+ });
+ it('rejects a mismatched optional test bundle ID',()=>{
+  const lines=rawTestSet();lines[1].properties={...lines[1].properties,_ftr_test_bundle_id:'set-other-12345678'};
+  expect(executeProperties(lines)).toEqual({operations:[]});
+ });
+ it('still rejects the four-child storefront example until trusted variable rules exist',()=>{
+  const lines=rawTestSet();lines.push({line:child('20'),properties:testProps()});
+  expect(executeProperties(lines)).toEqual({operations:[]});
+ });
 });
