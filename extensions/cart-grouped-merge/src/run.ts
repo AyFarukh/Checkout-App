@@ -89,7 +89,18 @@ function priceSet(lines: Line[], setId: string): PriceOperation[] {
   }}));
 }
 
-export function run(input: {cart?: {lines?: Line[]}}): {operations: PriceOperation[]} {
+type RunInput = {
+  cartTransform?: {testConfiguration?: {jsonValue?: unknown} | null} | null;
+  cart?: {testFlag?: {value?: string} | null; lines?: Line[]};
+};
+
+export function run(input: RunInput): {operations: PriceOperation[]} {
+  // Both the app-owned switch and this individual cart must opt into testing.
+  // A storefront attribute is a selector, never authorization to price products.
+  const config = input?.cartTransform?.testConfiguration?.jsonValue;
+  if (!config || typeof config !== 'object' || Array.isArray(config) ||
+      (config as {testEnabled?: unknown}).testEnabled !== true ||
+      input?.cart?.testFlag?.value !== 'true') return {operations: []};
   const lines = input?.cart?.lines || [];
   if (!Array.isArray(lines) || lines.length === 0 || lines.length > MAX_CART_LINES) return {operations: []};
   const sets = new Map<string, Line[]>();

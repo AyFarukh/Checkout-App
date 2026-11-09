@@ -1,5 +1,83 @@
 # Cart Transform switch — prepared, not executed
 
+## Test alongside the old registration — default off
+
+The replacement is now test-only. Keep every existing registration, including
+`40894836`, while testing. Do not run the removal mutation below during testing.
+No publishing, registration, configuration mutation or deletion has been performed.
+
+Two independent conditions are required before our Function emits operations:
+
+1. Its own Cart Transform registration has an app-owned JSON metafield with
+   namespace `$app`, key `bundle-test-rollout`, value `{"testEnabled":true}`.
+2. The individual cart has attribute `_ftr_bundle_pricing_test` equal to `true`.
+
+Missing/false/malformed configuration or an absent cart flag returns no operations.
+The cart flag is not secret and does not bypass product or quantity authorization.
+There is deliberately no unrestricted production mode in this implementation.
+
+Publish only when ready, register OUR Function through its owning app, and retain
+all existing registrations. Registering it without the configuration leaves it off.
+Record the NEW registration ID returned by `cartTransformCreate`; never use the
+old registration ID as the metafield owner. From our app's authorized Admin API,
+set its configuration with this schema-validated mutation and variables:
+
+```graphql
+mutation SetBundleTestRollout($metafields: [MetafieldsSetInput!]!) {
+  metafieldsSet(metafields: $metafields) {
+    metafields { id namespace key value }
+    userErrors { field message }
+  }
+}
+```
+
+```json
+{
+  "metafields": [{
+    "ownerId": "REPLACE_WITH_OUR_NEW_CART_TRANSFORM_GID",
+    "namespace": "$app",
+    "key": "bundle-test-rollout",
+    "type": "json",
+    "value": "{\"testEnabled\":true}"
+  }]
+}
+```
+
+Require empty `userErrors`. Run this through our app's API context so `$app`
+resolves to the same reserved namespace as the Function input query.
+
+In the browser console on your test storefront, opt ONLY that cart into testing:
+
+```javascript
+const response = await fetch(window.Shopify.routes.root + 'cart/update.js', {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({attributes: {_ftr_bundle_pricing_test: 'true'}})
+});
+if (!response.ok) throw new Error('Could not enable the test cart');
+await response.json();
+```
+
+Set the cart attribute to an empty string to opt that cart out. Set the app-owned
+JSON value to `{"testEnabled":false}` to stop our operations for every cart.
+Neither step removes or disables any other app's transform.
+
+Both registered Functions can still act on the SAME cart. The flag controls only
+ours, and the old Function does not understand it. A checkout price of zero cannot
+prove which Function produced it. Use our local Function runs or Function run
+logs to inspect our emitted operations; use a separate development store without
+the old registration for a fully isolated checkout test.
+
+### Current bundle compatibility blocker
+
+The storefront example supplied after the initial implementation contains four
+children and no `_bundleId`. The current selection validator still requires three
+picks and matching `_bundleId`; the test switch does not resolve that mismatch.
+Do not use a zero cart price from the old Function as proof the replacement works.
+We need the theme bundle builder and its trusted block/quantity configuration to
+support variable selection blocks before a real bundle test or production cutover.
+Do not remove the old registration until that compatibility work is complete.
+
 ## Confirmed scope
 
 Disable only the old `cart-grouped-merge` owned by `free-the-root-checkout-app`:
@@ -76,7 +154,7 @@ supported: all three blocks are required, as specified for this implementation.
 
 ## Verification performed
 
-- 35 Function unit cases passed (authorization, overlaps, quantities, malformed
+- 48 Function unit cases passed (authorization, overlaps, quantities, malformed
   configuration, independent sets and unsupported subscription lines).
 - The new input query validated against the 2026-07 Cart Transform schema.
 - The complete Shopify app build passed.

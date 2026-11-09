@@ -1,5 +1,9 @@
 query RunInput {
+  cartTransform {
+    testConfiguration: metafield(namespace: "$app", key: "bundle-test-rollout") { jsonValue }
+  }
   cart {
+    testFlag: attribute(key: "_ftr_bundle_pricing_test") { value }
     lines {
       id
       quantity

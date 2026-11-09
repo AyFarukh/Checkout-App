@@ -60,6 +60,8 @@ function priceSet(lines, setId) {
   } }));
 }
 function run(input) {
+  const config = input?.cartTransform?.testConfiguration?.jsonValue;
+  if (!config || typeof config !== "object" || Array.isArray(config) || config.testEnabled !== true || input?.cart?.testFlag?.value !== "true") return { operations: [] };
   const lines = input?.cart?.lines || [];
   if (!Array.isArray(lines) || lines.length === 0 || lines.length > MAX_CART_LINES) return { operations: [] };
   const sets = /* @__PURE__ */ new Map();

@@ -6,7 +6,8 @@ const set='set-test-12345678';
 const refs=(ids:string[])=>({type:'list.product_reference',jsonValue:ids.map(product)});
 function parent(changes:Record<string,unknown>={}){return {id:'parent-line',quantity:1,parentMarker:{value:'true'},setId:{value:set},bundleId:{value:set},parentVariantId:null,cost:{amountPerQuantity:{amount:'50.00'}},sellingPlanAllocation:null,merchandise:{__typename:'ProductVariant',id:variant('1'),product:{id:product('100'),block1:refs(['2','20']),block2:refs(['3','30']),block3:refs(['4','40'])}},...changes};}
 function child(id:string,changes:Record<string,unknown>={}){return {id:'line-'+id,quantity:1,parentMarker:null,setId:{value:set},bundleId:{value:set},parentVariantId:{value:'1'},sellingPlanAllocation:null,merchandise:{__typename:'ProductVariant',id:variant(id),product:{id:product(id)}},...changes};}
-function execute(lines:unknown[]){return run({cart:{lines}} as Parameters<typeof run>[0]);}
+function input(lines:unknown[]){return {cartTransform:{testConfiguration:{jsonValue:{testEnabled:true}}},cart:{testFlag:{value:'true'},lines}};}
+function execute(lines:unknown[]){return run(input(lines) as Parameters<typeof run>[0]);}
 const zero=(id:string)=>({lineUpdate:{cartLineId:'line-'+id,price:{adjustment:{fixedPricePerUnit:{amount:'0.00'}}}}});
 const selections=()=>[child('2'),child('3'),child('4')];
 const expected={operations:[zero('2'),zero('3'),zero('4')]};
@@ -35,4 +36,14 @@ describe('trusted parent block selection pricing',()=>{
  it('validates each parent against its own lists and isolates invalid sets',()=>{const p=withBlocks(refs(['20']),refs(['30']),refs(['40']));p.id='second-parent';p.setId={value:'set-second-12345678'};p.bundleId={value:'set-second-12345678'};expect(execute([parent(),...selections(),p,...selections().map(c=>({...c,id:c.id+'-second',setId:p.setId,bundleId:p.bundleId}))])).toEqual(expected);});
  it('rejects children linked to another set',()=>expect(execute([parent(),...selections().map(c=>({...c,setId:{value:'set-different-12345678'},bundleId:{value:'set-different-12345678'}}))])).toEqual({operations:[]}));
  it('fails closed above the line limit',()=>expect(execute([parent(),...Array.from({length:50},(_,i)=>child(String(i+2)))])).toEqual({operations:[]}));
+});
+
+
+describe('default-off test rollout',()=>{
+ const lines=()=>[parent(),...selections()];
+ it('does nothing without trusted configuration even when the cart opts in',()=>expect(run({cart:{testFlag:{value:'true'},lines:lines()}} as never)).toEqual({operations:[]}));
+ it.each([null,{}, {testEnabled:false},{testEnabled:'true'},true,'true'])('rejects missing, disabled or malformed configuration %#',jsonValue=>expect(run({...input(lines()),cartTransform:{testConfiguration:{jsonValue}}} as never)).toEqual({operations:[]}));
+ it.each([null,{value:'false'},{value:'TRUE'},{value:'1'}])('leaves ordinary and non-opted-in carts unchanged %#',testFlag=>expect(run({...input(lines()),cart:{lines:lines(),testFlag}} as never)).toEqual({operations:[]}));
+ it('processes only an opted-in cart when the app-owned switch is enabled',()=>expect(execute(lines())).toEqual(expected));
+ it('keeps authorization checks active for opted-in carts',()=>expect(execute([parent(),child('999'),child('3'),child('4')])).toEqual({operations:[]}));
 });
