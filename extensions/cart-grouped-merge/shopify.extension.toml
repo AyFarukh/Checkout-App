@@ -1,12 +1,12 @@
 api_version = "2026-07"
 
 [[extensions]]
-name = "t:name"
+name = "FreeTheRoots Bundle Pricing"
 handle = "cart-grouped-merge"
 uid = "a96fabc5-8a68-4d91-01aa-811dce5149496a867fc7"
 type = "function"
 
-description = "t:description"
+description = "Validates parent product block selections before pricing included bundle products."
 
   [[extensions.targeting]]
   target = "cart.transform.run"

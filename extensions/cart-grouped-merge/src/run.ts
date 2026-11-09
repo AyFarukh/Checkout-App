@@ -1,111 +1,105 @@
 /**
- * FTR dynamic bundle pricing (2026-07).
- *
- * Parent:
- *   _parent=true
- *   _set=<unique set id>
- *   _bundleId=<same unique set id>
- *
- * Children:
- *   _parent_product_id=<parent variant numeric id>
- *   _set=<same unique set id>
- *   _bundleId=<same unique set id>
- *
- * Children are dynamic by design. Matching child lines receive a fixed
- * per-unit price of 0.00 while the parent keeps its merchandise price.
+ * FTR bundle pricing. Line properties identify a selection; Shopify product
+ * metafields authorize it. Each paid parent requires one choice from each of
+ * custom.block_1_products, custom.block_2_products and custom.block_3_products.
+ * Invalid/incomplete sets emit no operations. Parent pricing is never changed.
  */
-const MAX_BUNDLE_LINES = 50;
+const MAX_CART_LINES = 50;
+const MAX_PRODUCTS_PER_BLOCK = 256;
 const SET_ID = /^set-[A-Za-z0-9-]{8,100}$/;
+const PRODUCT_ID = /^gid:\/\/shopify\/Product\/\d+$/;
+const VARIANT_ID = /^gid:\/\/shopify\/ProductVariant\/\d+$/;
 
-function variantNumber(gid) {
-  return typeof gid === 'string' && /^gid:\/\/shopify\/ProductVariant\/\d+$/.test(gid)
-    ? gid.split('/').pop()
-    : null;
+type Metafield = {type?: string; jsonValue?: unknown};
+type Line = {
+  id?: string;
+  quantity?: number;
+  parentMarker?: {value?: string} | null;
+  setId?: {value?: string} | null;
+  bundleId?: {value?: string} | null;
+  parentVariantId?: {value?: string} | null;
+  cost?: {amountPerQuantity?: {amount?: string}};
+  sellingPlanAllocation?: unknown;
+  merchandise?: {
+    __typename?: string;
+    id?: string;
+    product?: {id?: string; block1?: Metafield | null; block2?: Metafield | null; block3?: Metafield | null};
+  };
+};
+
+type PriceOperation = {lineUpdate: {cartLineId: string; price: {adjustment: {fixedPricePerUnit: {amount: string}}}}};
+
+function blockProducts(field: Metafield | null | undefined): Set<string> | null {
+  if (field?.type !== 'list.product_reference' || !Array.isArray(field.jsonValue) ||
+      field.jsonValue.length === 0 || field.jsonValue.length > MAX_PRODUCTS_PER_BLOCK ||
+      field.jsonValue.some(id => typeof id !== 'string' || !PRODUCT_ID.test(id))) return null;
+  return new Set(field.jsonValue as string[]);
 }
 
-function validSet(line) {
-  const setId = line.setId?.value;
-  return typeof setId === 'string' &&
-    SET_ID.test(setId) &&
-    line.bundleId?.value === setId;
+function validVariant(line: Line): boolean {
+  return typeof line.id === 'string' && line.id.length > 0 &&
+    line.merchandise?.__typename === 'ProductVariant' &&
+    typeof line.merchandise.id === 'string' && VARIANT_ID.test(line.merchandise.id) &&
+    typeof line.merchandise.product?.id === 'string' && PRODUCT_ID.test(line.merchandise.product.id) &&
+    Number.isSafeInteger(line.quantity) && line.quantity! > 0 && !line.sellingPlanAllocation;
 }
 
-export function run(input) {
+// A product may be offered in multiple blocks. Find a one-to-one assignment,
+// rather than allowing three items that merely belong to the combined lists.
+function fillsEveryBlock(picks: string[], blocks: Set<string>[], index = 0, used = 0): boolean {
+  if (index === picks.length) return used === (1 << blocks.length) - 1;
+  for (let block = 0; block < blocks.length; block++) {
+    if (!(used & (1 << block)) && blocks[block].has(picks[index]) &&
+        fillsEveryBlock(picks, blocks, index + 1, used | (1 << block))) return true;
+  }
+  return false;
+}
+
+function priceSet(lines: Line[], setId: string): PriceOperation[] {
+  if (lines.some(line => line.bundleId?.value !== setId) ||
+      new Set(lines.map(line => line.id)).size !== lines.length) return [];
+  const parents = lines.filter(line => line.parentMarker?.value === 'true');
+  if (parents.length !== 1) return [];
+  const parent = parents[0];
+  if (!validVariant(parent) || parent.parentVariantId?.value) return [];
+  const paidAmount = Number(parent.cost?.amountPerQuantity?.amount);
+  if (!Number.isFinite(paidAmount) || paidAmount <= 0) return [];
+  const parentProduct = parent.merchandise!.product!;
+  const parsed = [parentProduct.block1, parentProduct.block2, parentProduct.block3].map(blockProducts);
+  if (parsed.some(block => !block)) return [];
+  const blocks = parsed as Set<string>[];
+  const parentVariantNumber = parent.merchandise!.id!.split('/').pop();
+  const children = lines.filter(line => line !== parent);
+  const picks: string[] = [];
+  for (const child of children) {
+    if (!validVariant(child) || child.parentMarker?.value ||
+        child.parentVariantId?.value !== parentVariantNumber ||
+        child.merchandise!.product!.id === parentProduct.id ||
+        child.quantity! % parent.quantity! !== 0) return [];
+    // Shopify can merge an identical variant selected in multiple blocks. The
+    // number of included picks is its quantity divided by parent quantity.
+    const units = child.quantity! / parent.quantity!;
+    if (units < 1 || picks.length + units > blocks.length) return [];
+    for (let unit = 0; unit < units; unit++) picks.push(child.merchandise!.product!.id!);
+  }
+  if (picks.length !== blocks.length || !fillsEveryBlock(picks, blocks)) return [];
+  return children.map(child => ({lineUpdate: {
+    cartLineId: child.id!,
+    price: {adjustment: {fixedPricePerUnit: {amount: '0.00'}}},
+  }}));
+}
+
+export function run(input: {cart?: {lines?: Line[]}}): {operations: PriceOperation[]} {
   const lines = input?.cart?.lines || [];
-  if (!Array.isArray(lines) || lines.length === 0 || lines.length > MAX_BUNDLE_LINES) {
-    return {operations: []};
-  }
-
-  const parents = new Map();
-  const childCounts = new Map();
-
-  // Pass 1: establish exactly one valid parent per set.
+  if (!Array.isArray(lines) || lines.length === 0 || lines.length > MAX_CART_LINES) return {operations: []};
+  const sets = new Map<string, Line[]>();
   for (const line of lines) {
-    if (
-      line.parentMarker?.value !== 'true' ||
-      !validSet(line) ||
-      line.parentVariantId?.value ||
-      line.merchandise?.__typename !== 'ProductVariant' ||
-      !Number.isInteger(line.quantity) ||
-      line.quantity < 1
-    ) continue;
-
-    const parentId = variantNumber(line.merchandise.id);
-    if (!parentId) continue;
-
-    const setId = line.setId.value;
-    if (parents.has(setId)) {
-      parents.set(setId, null);
-    } else {
-      parents.set(setId, {id: parentId, quantity: line.quantity});
-    }
+    const setId = line?.setId?.value;
+    if (typeof setId !== 'string' || !SET_ID.test(setId)) continue;
+    const members = sets.get(setId) || [];
+    members.push(line);sets.set(setId, members);
   }
-
-  // Pass 2: validate children and count each set before emitting operations.
-  const candidates = [];
-  for (const line of lines) {
-    if (
-      line.parentMarker?.value ||
-      !line.parentVariantId?.value ||
-      !validSet(line) ||
-      line.merchandise?.__typename !== 'ProductVariant' ||
-      !Number.isInteger(line.quantity) ||
-      line.quantity < 1
-    ) continue;
-
-    const setId = line.setId.value;
-    const parent = parents.get(setId);
-    const childId = variantNumber(line.merchandise.id);
-
-    if (
-      !parent ||
-      !childId ||
-      childId === parent.id ||
-      parent.id !== line.parentVariantId.value ||
-      line.quantity !== parent.quantity
-    ) continue;
-
-    childCounts.set(setId, (childCounts.get(setId) || 0) + 1);
-    candidates.push({line, setId});
-  }
-
-  const operations = [];
-  for (const {line, setId} of candidates) {
-    const count = childCounts.get(setId) || 0;
-    // Require at least one child and cap pathological/tampered bundle sets.
-    if (count < 1 || count > 20) continue;
-
-    operations.push({
-      lineUpdate: {
-        cartLineId: line.id,
-        price: {
-          adjustment: {
-            fixedPricePerUnit: {amount: '0.00'},
-          },
-        },
-      },
-    });
-  }
-
+  const operations: PriceOperation[] = [];
+  for (const [setId, members] of sets) operations.push(...priceSet(members, setId));
   return {operations};
 }

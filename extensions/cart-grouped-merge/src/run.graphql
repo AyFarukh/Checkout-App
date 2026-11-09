@@ -7,10 +7,18 @@ query RunInput {
       setId: attribute(key: "_set") { value }
       bundleId: attribute(key: "_bundleId") { value }
       parentVariantId: attribute(key: "_parent_product_id") { value }
+      cost { amountPerQuantity { amount } }
+      sellingPlanAllocation { sellingPlan { id } }
       merchandise {
         __typename
         ... on ProductVariant {
           id
+          product {
+            id
+            block1: metafield(namespace: "custom", key: "block_1_products") { type jsonValue }
+            block2: metafield(namespace: "custom", key: "block_2_products") { type jsonValue }
+            block3: metafield(namespace: "custom", key: "block_3_products") { type jsonValue }
+          }
         }
       }
     }
