@@ -15,6 +15,7 @@ function run_default(userfunction) {
 // extensions/cart-grouped-merge/src/run.ts
 var MAX_CART_LINES = 50;
 var MAX_PRODUCTS_PER_BLOCK = 256;
+var MAX_PICKS = 50;
 var SET_ID = /^set-[A-Za-z0-9-]{8,100}$/;
 var PRODUCT_ID = /^gid:\/\/shopify\/Product\/\d+$/;
 var VARIANT_ID = /^gid:\/\/shopify\/ProductVariant\/\d+$/;
@@ -25,12 +26,54 @@ function blockProducts(field) {
 function validVariant(line) {
   return typeof line.id === "string" && line.id.length > 0 && line.merchandise?.__typename === "ProductVariant" && typeof line.merchandise.id === "string" && VARIANT_ID.test(line.merchandise.id) && typeof line.merchandise.product?.id === "string" && PRODUCT_ID.test(line.merchandise.product.id) && Number.isSafeInteger(line.quantity) && line.quantity > 0 && !line.sellingPlanAllocation;
 }
-function fillsEveryBlock(picks, blocks, index = 0, used = 0) {
-  if (index === picks.length) return used === (1 << blocks.length) - 1;
-  for (let block = 0; block < blocks.length; block++) {
-    if (!(used & 1 << block) && blocks[block].has(picks[index]) && fillsEveryBlock(picks, blocks, index + 1, used | 1 << block)) return true;
+function requiredCount(field) {
+  if (field == null) return 0;
+  if (field.type !== "number_integer" || !Number.isSafeInteger(field.jsonValue) || field.jsonValue < 0 || field.jsonValue > MAX_PICKS) return null;
+  return field.jsonValue;
+}
+function fillsBlocks(picks, blocks) {
+  const quantities = /* @__PURE__ */ new Map();
+  for (const pick of picks) quantities.set(pick, (quantities.get(pick) || 0) + 1);
+  const products = [...quantities.keys()];
+  const sink = 1 + products.length + blocks.length;
+  const capacity = Array.from({ length: sink + 1 }, () => Array(sink + 1).fill(0));
+  const adjacent = Array.from({ length: sink + 1 }, () => []);
+  const edge = (from, to, units) => {
+    adjacent[from].push(to);
+    adjacent[to].push(from);
+    capacity[from][to] = units;
+  };
+  products.forEach((product, index) => {
+    edge(0, index + 1, quantities.get(product));
+    blocks.forEach((block, blockIndex) => {
+      if (block.products.has(product)) edge(index + 1, 1 + products.length + blockIndex, MAX_PICKS);
+    });
+  });
+  blocks.forEach((block, index) => edge(1 + products.length + index, sink, block.quantity));
+  let flow = 0;
+  while (flow < picks.length) {
+    const previous = Array(sink + 1).fill(-1);
+    previous[0] = 0;
+    const queue = [0];
+    for (let head = 0; head < queue.length && previous[sink] === -1; head++) {
+      const from = queue[head];
+      for (const to of adjacent[from]) {
+        if (previous[to] === -1 && capacity[from][to] > 0) {
+          previous[to] = from;
+          queue.push(to);
+        }
+      }
+    }
+    if (previous[sink] === -1) return false;
+    let units = MAX_PICKS;
+    for (let to = sink; to !== 0; to = previous[to]) units = Math.min(units, capacity[previous[to]][to]);
+    for (let to = sink; to !== 0; to = previous[to]) {
+      capacity[previous[to]][to] -= units;
+      capacity[to][previous[to]] += units;
+    }
+    flow += units;
   }
-  return false;
+  return true;
 }
 function priceSet(lines, setId) {
   if (lines.some((line) => line.bundleId != null && line.bundleId.value !== setId || [line.legacyParent, line.legacySet, line.legacyParentVariant, line.legacyBundle].some((attribute) => attribute != null)) || new Set(lines.map((line) => line.id)).size !== lines.length) return [];
@@ -41,19 +84,30 @@ function priceSet(lines, setId) {
   const paidAmount = Number(parent.cost?.amountPerQuantity?.amount);
   if (!Number.isFinite(paidAmount) || paidAmount <= 0) return [];
   const parentProduct = parent.merchandise.product;
-  const parsed = [parentProduct.block1, parentProduct.block2, parentProduct.block3].map(blockProducts);
-  if (parsed.some((block) => !block)) return [];
-  const blocks = parsed;
+  const blocks = [];
+  const productLists = [parentProduct.block1, parentProduct.block2, parentProduct.block3, parentProduct.block4];
+  const countFields = [parentProduct.block1Count, parentProduct.block2Count, parentProduct.block3Count, parentProduct.block4Count];
+  let expectedPicks = 0;
+  for (let index = 0; index < productLists.length; index++) {
+    const quantity = requiredCount(countFields[index]);
+    if (quantity === null) return [];
+    if (quantity === 0) continue;
+    const products = blockProducts(productLists[index]);
+    if (!products || expectedPicks + quantity > MAX_PICKS) return [];
+    blocks.push({ products, quantity });
+    expectedPicks += quantity;
+  }
+  if (expectedPicks === 0) return [];
   const parentVariantNumber = parent.merchandise.id.split("/").pop();
   const children = lines.filter((line) => line !== parent);
   const picks = [];
   for (const child of children) {
     if (!validVariant(child) || child.parentMarker?.value || child.parentVariantId?.value !== parentVariantNumber || child.merchandise.product.id === parentProduct.id || child.quantity % parent.quantity !== 0) return [];
     const units = child.quantity / parent.quantity;
-    if (units < 1 || picks.length + units > blocks.length) return [];
+    if (units < 1 || picks.length + units > expectedPicks) return [];
     for (let unit = 0; unit < units; unit++) picks.push(child.merchandise.product.id);
   }
-  if (picks.length !== blocks.length || !fillsEveryBlock(picks, blocks)) return [];
+  if (picks.length !== expectedPicks || !fillsBlocks(picks, blocks)) return [];
   return children.map((child) => ({ lineUpdate: {
     cartLineId: child.id,
     price: { adjustment: { fixedPricePerUnit: { amount: "0.00" } } }

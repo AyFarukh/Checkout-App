@@ -1,11 +1,12 @@
 /**
  * FTR bundle pricing. Line properties identify a selection; Shopify product
- * metafields authorize it. Each paid parent requires one choice from each of
- * custom.block_1_products, custom.block_2_products and custom.block_3_products.
+ * metafields authorize it. Up to four product blocks and their quantity
+ * metafields define the permitted selections for each paid parent.
  * Invalid/incomplete sets emit no operations. Parent pricing is never changed.
  */
 const MAX_CART_LINES = 50;
 const MAX_PRODUCTS_PER_BLOCK = 256;
+const MAX_PICKS = 50;
 const SET_ID = /^set-[A-Za-z0-9-]{8,100}$/;
 const PRODUCT_ID = /^gid:\/\/shopify\/Product\/\d+$/;
 const VARIANT_ID = /^gid:\/\/shopify\/ProductVariant\/\d+$/;
@@ -27,7 +28,8 @@ type Line = {
   merchandise?: {
     __typename?: string;
     id?: string;
-    product?: {id?: string; block1?: Metafield | null; block2?: Metafield | null; block3?: Metafield | null};
+    product?: {id?: string; block1?: Metafield | null; block2?: Metafield | null; block3?: Metafield | null; block4?: Metafield | null;
+      block1Count?: Metafield | null; block2Count?: Metafield | null; block3Count?: Metafield | null; block4Count?: Metafield | null};
   };
 };
 
@@ -48,15 +50,56 @@ function validVariant(line: Line): boolean {
     Number.isSafeInteger(line.quantity) && line.quantity! > 0 && !line.sellingPlanAllocation;
 }
 
-// A product may be offered in multiple blocks. Find a one-to-one assignment,
-// rather than allowing three items that merely belong to the combined lists.
-function fillsEveryBlock(picks: string[], blocks: Set<string>[], index = 0, used = 0): boolean {
-  if (index === picks.length) return used === (1 << blocks.length) - 1;
-  for (let block = 0; block < blocks.length; block++) {
-    if (!(used & (1 << block)) && blocks[block].has(picks[index]) &&
-        fillsEveryBlock(picks, blocks, index + 1, used | (1 << block))) return true;
+type Block = {products: Set<string>; quantity: number};
+
+function requiredCount(field: Metafield | null | undefined): number | null {
+  if (field == null) return 0;
+  if (field.type !== 'number_integer' || !Number.isSafeInteger(field.jsonValue) ||
+      (field.jsonValue as number) < 0 || (field.jsonValue as number) > MAX_PICKS) return null;
+  return field.jsonValue as number;
+}
+
+// Bounded flow assigns product quantities to block capacities. Reverse edges
+// resolve overlapping lists without exponential search or greedy allocation.
+function fillsBlocks(picks: string[], blocks: Block[]): boolean {
+  const quantities = new Map<string, number>();
+  for (const pick of picks) quantities.set(pick, (quantities.get(pick) || 0) + 1);
+  const products = [...quantities.keys()];
+  const sink = 1 + products.length + blocks.length;
+  const capacity = Array.from({length: sink + 1}, () => Array(sink + 1).fill(0) as number[]);
+  const adjacent = Array.from({length: sink + 1}, () => [] as number[]);
+  const edge = (from: number, to: number, units: number) => {
+    adjacent[from].push(to); adjacent[to].push(from); capacity[from][to] = units;
+  };
+  products.forEach((product, index) => {
+    edge(0, index + 1, quantities.get(product)!);
+    blocks.forEach((block, blockIndex) => {
+      if (block.products.has(product)) edge(index + 1, 1 + products.length + blockIndex, MAX_PICKS);
+    });
+  });
+  blocks.forEach((block, index) => edge(1 + products.length + index, sink, block.quantity));
+  let flow = 0;
+  while (flow < picks.length) {
+    const previous: number[] = Array(sink + 1).fill(-1);
+    previous[0] = 0;
+    const queue = [0];
+    for (let head = 0; head < queue.length && previous[sink] === -1; head++) {
+      const from = queue[head];
+      for (const to of adjacent[from]) {
+        if (previous[to] === -1 && capacity[from][to] > 0) {
+          previous[to] = from; queue.push(to);
+        }
+      }
+    }
+    if (previous[sink] === -1) return false;
+    let units = MAX_PICKS;
+    for (let to = sink; to !== 0; to = previous[to]) units = Math.min(units, capacity[previous[to]][to]);
+    for (let to = sink; to !== 0; to = previous[to]) {
+      capacity[previous[to]][to] -= units; capacity[to][previous[to]] += units;
+    }
+    flow += units;
   }
-  return false;
+  return true;
 }
 
 function priceSet(lines: Line[], setId: string): PriceOperation[] {
@@ -73,9 +116,19 @@ function priceSet(lines: Line[], setId: string): PriceOperation[] {
   const paidAmount = Number(parent.cost?.amountPerQuantity?.amount);
   if (!Number.isFinite(paidAmount) || paidAmount <= 0) return [];
   const parentProduct = parent.merchandise!.product!;
-  const parsed = [parentProduct.block1, parentProduct.block2, parentProduct.block3].map(blockProducts);
-  if (parsed.some(block => !block)) return [];
-  const blocks = parsed as Set<string>[];
+  const blocks: Block[] = [];
+  const productLists = [parentProduct.block1, parentProduct.block2, parentProduct.block3, parentProduct.block4];
+  const countFields = [parentProduct.block1Count, parentProduct.block2Count, parentProduct.block3Count, parentProduct.block4Count];
+  let expectedPicks = 0;
+  for (let index = 0; index < productLists.length; index++) {
+    const quantity = requiredCount(countFields[index]);
+    if (quantity === null) return [];
+    if (quantity === 0) continue;
+    const products = blockProducts(productLists[index]);
+    if (!products || expectedPicks + quantity > MAX_PICKS) return [];
+    blocks.push({products, quantity}); expectedPicks += quantity;
+  }
+  if (expectedPicks === 0) return [];
   const parentVariantNumber = parent.merchandise!.id!.split('/').pop();
   const children = lines.filter(line => line !== parent);
   const picks: string[] = [];
@@ -87,10 +140,10 @@ function priceSet(lines: Line[], setId: string): PriceOperation[] {
     // Shopify can merge an identical variant selected in multiple blocks. The
     // number of included picks is its quantity divided by parent quantity.
     const units = child.quantity! / parent.quantity!;
-    if (units < 1 || picks.length + units > blocks.length) return [];
+    if (units < 1 || picks.length + units > expectedPicks) return [];
     for (let unit = 0; unit < units; unit++) picks.push(child.merchandise!.product!.id!);
   }
-  if (picks.length !== blocks.length || !fillsEveryBlock(picks, blocks)) return [];
+  if (picks.length !== expectedPicks || !fillsBlocks(picks, blocks)) return [];
   return children.map(child => ({lineUpdate: {
     cartLineId: child.id!,
     price: {adjustment: {fixedPricePerUnit: {amount: '0.00'}}},

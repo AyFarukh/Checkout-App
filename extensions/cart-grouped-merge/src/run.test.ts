@@ -4,15 +4,16 @@ import {run} from './run';
 const variant=(id:string)=>`gid://shopify/ProductVariant/${id}`;
 const product=(id:string)=>`gid://shopify/Product/${id}`;
 const set='set-test-12345678';
+const count=(quantity:number)=>({type:'number_integer',jsonValue:quantity});
 const refs=(ids:string[])=>({type:'list.product_reference',jsonValue:ids.map(product)});
-function parent(changes:Record<string,unknown>={}){return {id:'parent-line',quantity:1,parentMarker:{value:'true'},setId:{value:set},bundleId:{value:set},parentVariantId:null,cost:{amountPerQuantity:{amount:'50.00'}},sellingPlanAllocation:null,merchandise:{__typename:'ProductVariant',id:variant('1'),product:{id:product('100'),block1:refs(['2','20']),block2:refs(['3','30']),block3:refs(['4','40'])}},...changes};}
+function parent(changes:Record<string,unknown>={}){return {id:'parent-line',quantity:1,parentMarker:{value:'true'},setId:{value:set},bundleId:{value:set},parentVariantId:null,cost:{amountPerQuantity:{amount:'50.00'}},sellingPlanAllocation:null,merchandise:{__typename:'ProductVariant',id:variant('1'),product:{id:product('100'),block1:refs(['2','20']),block2:refs(['3','30']),block3:refs(['4','40']),block1Count:count(1),block2Count:count(1),block3Count:count(1)}},...changes};}
 function child(id:string,changes:Record<string,unknown>={}){return {id:'line-'+id,quantity:1,parentMarker:null,setId:{value:set},bundleId:{value:set},parentVariantId:{value:'1'},sellingPlanAllocation:null,merchandise:{__typename:'ProductVariant',id:variant(id),product:{id:product(id)}},...changes};}
 function input(lines:unknown[]){return {cartTransform:{testConfiguration:{jsonValue:{testEnabled:true}}},cart:{testFlag:{value:'true'},lines}};}
 function execute(lines:unknown[]){return run(input(lines) as Parameters<typeof run>[0]);}
 const zero=(id:string)=>({lineUpdate:{cartLineId:'line-'+id,price:{adjustment:{fixedPricePerUnit:{amount:'0.00'}}}}});
 const selections=()=>[child('2'),child('3'),child('4')];
 const expected={operations:[zero('2'),zero('3'),zero('4')]};
-function withBlocks(block1:unknown,block2:unknown=refs(['3']),block3:unknown=refs(['4'])){const p=parent();p.merchandise.product={id:product('100'),block1,block2,block3} as typeof p.merchandise.product;return p;}
+function withBlocks(block1:unknown,block2:unknown=refs(['3']),block3:unknown=refs(['4'])){const p=parent();p.merchandise.product={...p.merchandise.product,block1,block2,block3} as typeof p.merchandise.product;return p;}
 
 describe('trusted parent block selection pricing',()=>{
  it('leaves an empty or ordinary cart unchanged',()=>{expect(execute([])).toEqual({operations:[]});expect(execute([child('2',{setId:null,bundleId:null,parentVariantId:null})])).toEqual({operations:[]});});
@@ -81,8 +82,44 @@ describe('isolated test property contract',()=>{
   const lines=rawTestSet();lines[1].properties={...lines[1].properties,_ftr_test_bundle_id:'set-other-12345678'};
   expect(executeProperties(lines)).toEqual({operations:[]});
  });
- it('still rejects the four-child storefront example until trusted variable rules exist',()=>{
+ it('rejects four children when the trusted counts authorize only three',()=>{
   const lines=rawTestSet();lines.push({line:child('20'),properties:testProps()});
   expect(executeProperties(lines)).toEqual({operations:[]});
  });
+});
+
+
+function withRules(changes:Record<string,unknown>){
+ const p=parent();p.merchandise.product={...p.merchandise.product,...changes};return p;
+}
+describe('theme-configured block quantities',()=>{
+ it('supports a four-child bundle with two picks from block one',()=>expect(execute([
+  withRules({block1Count:count(2)}),child('2'),child('20'),child('3'),child('4')
+ ])).toEqual({operations:[zero('2'),zero('20'),zero('3'),zero('4')]}));
+ it('supports the fourth product block',()=>expect(execute([
+  withRules({block4:refs(['5']),block4Count:count(1)}),...selections(),child('5')
+ ])).toEqual({operations:[zero('2'),zero('3'),zero('4'),zero('5')]}));
+ it('permits disabled and missing blocks but requires at least one active block',()=>{
+  expect(execute([withRules({block2:null,block2Count:count(0),block3:null,block3Count:null}),child('2')])).toEqual({operations:[zero('2')]});
+  expect(execute([withRules({block1Count:count(0),block2Count:count(0),block3Count:count(0)})])).toEqual({operations:[]});
+ });
+ it('rejects active blocks with missing product authorization',()=>expect(execute([
+  withRules({block4Count:count(1)}),...selections(),child('5')
+ ])).toEqual({operations:[]}));
+ it.each([{type:'number_integer',jsonValue:-1},{type:'number_integer',jsonValue:1.5},{type:'number_integer',jsonValue:'2'},{type:'json',jsonValue:2},{type:'number_integer',jsonValue:51}])('rejects malformed counts %#',block1Count=>expect(execute([withRules({block1Count}),...selections()])).toEqual({operations:[]}));
+ it('rejects missing counts rather than guessing one choice per block',()=>expect(execute([
+  withRules({block1Count:null,block2Count:null,block3Count:null}),...selections()
+ ])).toEqual({operations:[]}));
+ it('requires the correct per-block allocation despite correct total count',()=>expect(execute([
+  withRules({block1Count:count(2)}),child('2'),child('3',{quantity:2}),child('4')
+ ])).toEqual({operations:[]}));
+ it('handles overlapping lists with larger capacities without greedy assignment',()=>expect(execute([
+  withRules({block1:refs(['2','3']),block1Count:count(2),block2:refs(['2']),block2Count:count(1),block3Count:count(0)}),child('2'),child('3',{quantity:2})
+ ])).toEqual({operations:[zero('2'),zero('3')]}));
+ it('scales variable counts by parent quantity, including merged identical picks',()=>expect(execute([
+  {...withRules({block1Count:count(2)}),quantity:2},child('2',{quantity:4}),child('3',{quantity:2}),child('4',{quantity:2})
+ ])).toEqual(expected));
+ it('handles a large repeated selection within the bounded quantity limit',()=>expect(execute([
+  withRules({block1Count:count(48)}),child('2',{quantity:48}),child('3'),child('4')
+ ])).toEqual(expected));
 });

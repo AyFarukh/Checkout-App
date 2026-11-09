@@ -74,16 +74,16 @@ prove which Function produced it. Use our local Function runs or Function run
 logs to inspect our emitted operations; use a separate development store without
 the old registration for a fully isolated checkout test.
 
-### Current bundle compatibility blocker
+### Theme-compatible variable blocks
 
-The storefront example supplied after the initial implementation contains four
-children. The current selection validator still requires three picks; the test
-switch and new test properties do not resolve that quantity mismatch. The
-redundant bundle ID is now optional; the new `_ftr_test_set` groups test lines.
-Do not use a zero cart price from the old Function as proof the replacement works.
-We need the theme bundle builder and its trusted block/quantity configuration to
-support variable selection blocks before a real bundle test or production cutover.
-Do not remove the old registration until that compatibility work is complete.
+The validator now uses all four product lists and the exact quantity fields found
+in the theme: `no_of_block_1_free_products`, `total_block_2_free_products`,
+`total_block_3_free_products`, `total_block_4_free_products`, in namespace `custom`.
+Missing/zero counts disable blocks; active counts require valid authorized lists.
+Four-child and variable-count bundles are supported when they fit those trusted
+rules. Frontend labels and quantities are not trusted as authorization.
+See the theme test guide for URL opt-in and the new ownership-checked command to
+set the app-owned test switch without using a different GraphiQL app's namespace.
 
 ## Confirmed scope
 
@@ -107,20 +107,19 @@ Our replacement belongs to `Freetheroots Checkout Events`:
 
 ## Prepared replacement behavior
 
-The Function now reads the paid parent product's `custom.block_1_products`,
-`custom.block_2_products`, and `custom.block_3_products` directly from Shopify.
-All three must be nonempty `list.product_reference` metafields. No separate
-manual allowlist is needed. Each set requires exactly one selected product from
-each block per parent unit. Overlapping product lists are resolved as a complete
-one-to-one assignment; membership in the combined lists alone is insufficient.
+The Function reads `custom.block_1_products` through `custom.block_4_products`
+and the matching integer count fields listed above. At least one block must be
+active. Each active block requires a valid, nonempty `list.product_reference`.
+No separate manual product allowlist is needed. Overlapping lists are allocated
+against every block's required quantity using bounded flow, not just combined
+list membership. Missing/zero counts disable a block; malformed counts fail closed.
 
-Shopify can merge repeated selections of an identical variant into one line.
-Quantities are therefore counted as selected units per parent quantity. Three
-identical picks may be one child line with quantity three. Invalid quantities,
-missing/extra/unauthorized children, unpaid parents, ambiguous parents, missing
-configuration, and subscription lines produce no price updates for that set.
-The parent keeps its catalog price; validated children get a per-unit price of
-zero. Invalid sets do not prevent independent valid sets from being processed.
+Shopify may merge identical variant selections into one line. Child quantities
+are counted per parent unit. The limits are 50 included units per parent, 50 cart
+lines, and 256 products per active block. Invalid quantities, incomplete/extra or
+unauthorized children, unpaid/ambiguous parents, bad configuration and selling-plan
+lines produce no operations for that set. The parent price is unchanged; valid
+included children receive a zero per-unit price. Independent valid sets still work.
 
 Test-only properties are required: `_ftr_test_parent=true` on the parent, matching
 `_ftr_test_set` values of the form `set-...`, and `_ftr_test_parent_variant_id`
@@ -134,8 +133,7 @@ identity, not client-supplied product labels or IDs.
 Product-level metafields authorize all variants of each listed child product,
 and every positive-priced variant of the configured parent product. If the
 catalog includes sample/premium variants that should be excluded, add explicit
-variant rules before activation. Missing/optional blocks are not currently
-supported: all three blocks are required, as specified for this implementation.
+variant rules before activation. Optional blocks are supported when their count is missing or zero.
 
 ## Before the switch
 
@@ -164,7 +162,7 @@ supported: all three blocks are required, as specified for this implementation.
 
 ## Verification performed
 
-- 57 Function unit cases passed (authorization, overlaps, quantities, malformed
+- 71 Function unit cases passed (authorization, overlaps, quantities, malformed
   configuration, independent sets and unsupported subscription lines).
 - The new input query validated against the 2026-07 Cart Transform schema.
 - The complete Shopify app build passed.
@@ -173,7 +171,13 @@ supported: all three blocks are required, as specified for this implementation.
   child-product fixture. Synthetic IDs only; these runs did not contact a cart or
   execute a store mutation.
 
-## Controlled switch, only after the checks above pass
+## Future controlled switch — not part of theme testing
+
+Do NOT remove the old registration during this test. The current replacement is
+still gated by test configuration, a cart flag, and test-only property names. A
+production rollout must arrange the normal theme payload and activation mode
+before unregistering the Function serving ordinary customer carts. Passing the
+test fixtures alone is not authorization to perform this production cutover.
 
 Save the old registration's function ID, blockOnFailure value, and any accessible
 metafield configuration for rollback. Use appropriately authorized Admin API
