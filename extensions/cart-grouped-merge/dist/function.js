@@ -27,8 +27,13 @@ function validVariant(line) {
 }
 function requiredCount(field) {
   if (field == null) return 0;
-  if (field.type !== "number_integer" || !Number.isSafeInteger(field.jsonValue) || field.jsonValue < 0 || field.jsonValue > MAX_PICKS) return null;
-  return field.jsonValue;
+  let value = field.jsonValue;
+  if (field.type === "single_line_text_field") {
+    if (typeof value !== "string" || !/^\d+$/.test(value.trim())) return null;
+    value = Number(value.trim());
+  } else if (field.type !== "number_integer") return null;
+  if (!Number.isSafeInteger(value) || value < 0 || value > MAX_PICKS) return null;
+  return value;
 }
 function fillsBlocks(picks, blocks) {
   const quantities = /* @__PURE__ */ new Map();

@@ -58,7 +58,9 @@ All four rule pairs are read live from Shopify:
 | `custom.block_4_products` | `custom.total_block_4_free_products` |
 
 Product lists must be `list.product_reference`, counts must be nonnegative
-`number_integer`. Missing/zero counts disable a block. Active blocks need valid
+`number_integer` values or whole-number numeric text in existing
+`single_line_text_field` fields. Empty, fractional, negative, or nonnumeric text
+is rejected. Missing/zero counts disable a block. Active blocks need valid
 lists. At least one block must be active, with no more than 50 included units per
 parent and 50 cart lines. Unauthorized, incomplete, extra, malformed, unpaid,
 duplicate-parent, self-product or selling-plan groups receive no price changes.
@@ -74,7 +76,15 @@ actual cart/checkout result before the demo.
 
 ## Verification
 
-50 Function tests cover authorization, live rules, quantity matching and the exact
+58 Function tests cover authorization, live rules, quantity matching and the exact
 `__bundle` input contract. Two theme tests exercise the real purchase-mode guard
 in both directions. The Function is built and run locally on valid and invalid
 four-selection fixtures. Store deployment and a live checkout remain your steps.
+
+
+Compatibility fix verified against the reported Complete Care setup: its third
+block count is a `single_line_text_field` with value `1`, while the other counts
+are integer fields. Numeric text is accepted without changing store metafields.
+The Four Pack integer configuration remains supported. Local compiled replays
+use the reported product selections and the read-only Shopify rule data; live
+checkout verification still requires deploying the updated app version.

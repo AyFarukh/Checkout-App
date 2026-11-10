@@ -105,3 +105,13 @@ describe('direct bundle protocol without demo switches',()=>{
   expect(cost).toBeLessThanOrEqual(30);expect(Buffer.byteLength(query)).toBeLessThanOrEqual(3000);
  });
 });
+
+
+describe('existing text quantity metafields',()=>{
+ it('prices every child of Complete Care-style rules when block three is numeric text',()=>expect(execute([
+  withRules({block1Count:count(2),block3Count:{type:'single_line_text_field',jsonValue:'1'}}),child('2'),child('20'),child('3'),child('4')
+ ])).toEqual({operations:[zero('2'),zero('20'),zero('3'),zero('4')]}));
+ it.each(['',' ', '1 extra','1.5','-1','51','Infinity'])('rejects invalid text quantities (%s)',value=>expect(execute([
+  withRules({block3Count:{type:'single_line_text_field',jsonValue:value}}),...selections()
+ ])).toEqual({operations:[]}));
+});

@@ -45,9 +45,13 @@ type Block = {products: Set<string>; quantity: number};
 
 function requiredCount(field: Metafield | null | undefined): number | null {
   if (field == null) return 0;
-  if (field.type !== 'number_integer' || !Number.isSafeInteger(field.jsonValue) ||
-      (field.jsonValue as number) < 0 || (field.jsonValue as number) > MAX_PICKS) return null;
-  return field.jsonValue as number;
+  let value = field.jsonValue;
+  if (field.type === 'single_line_text_field') {
+    if (typeof value !== 'string' || !/^\d+$/.test(value.trim())) return null;
+    value = Number(value.trim());
+  } else if (field.type !== 'number_integer') return null;
+  if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > MAX_PICKS) return null;
+  return value as number;
 }
 
 // Bounded flow assigns product quantities to block capacities. Reverse edges
