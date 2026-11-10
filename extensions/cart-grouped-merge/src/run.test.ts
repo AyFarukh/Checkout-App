@@ -8,19 +8,7 @@ const count=(quantity:number)=>({type:'number_integer',jsonValue:quantity});
 const refs=(ids:string[])=>({type:'list.product_reference',jsonValue:ids.map(product)});
 function parent(changes:Record<string,unknown>={}){return {id:'parent-line',quantity:1,parentMarker:{value:'true'},setId:{value:set},bundleId:{value:set},parentVariantId:null,cost:{amountPerQuantity:{amount:'50.00'}},sellingPlanAllocation:null,merchandise:{__typename:'ProductVariant',id:variant('1'),product:{id:product('100'),block1:refs(['2','20']),block2:refs(['3','30']),block3:refs(['4','40']),block1Count:count(1),block2Count:count(1),block3Count:count(1)}},...changes};}
 function child(id:string,changes:Record<string,unknown>={}){return {id:'line-'+id,quantity:1,parentMarker:null,setId:{value:set},bundleId:{value:set},parentVariantId:{value:'1'},sellingPlanAllocation:null,merchandise:{__typename:'ProductVariant',id:variant(id),product:{id:product(id)}},...changes};}
-function input(lines:unknown[]){
- const blockCounts:Record<string,unknown>={};
- for(const line of lines as ReturnType<typeof parent>[]) {
-  const p=line.merchandise?.product;
-  if(!p?.id || !('block1Count' in p))continue;
-  blockCounts[p.id.split('/').pop()!]=[1,2,3,4].map(index=>{
-   const field=(p as Record<string,unknown>)['block'+index+'Count'] as {type?:string;jsonValue?:unknown}|null;
-   return field==null?0:field.type==='number_integer'?field.jsonValue:-1;
-  });
- }
- return {cartTransform:{testConfiguration:{jsonValue:{testEnabled:true,countsVersion:1,blockCounts}}},cart:{testFlag:{value:'true'},lines}};
-}
-function execute(lines:unknown[]){return run(input(lines) as Parameters<typeof run>[0]);}
+function execute(lines:unknown[]){return run({cart:{lines}} as Parameters<typeof run>[0]);}
 const zero=(id:string)=>({lineUpdate:{cartLineId:'line-'+id,price:{adjustment:{fixedPricePerUnit:{amount:'0.00'}}}}});
 const selections=()=>[child('2'),child('3'),child('4')];
 const expected={operations:[zero('2'),zero('3'),zero('4')]};
@@ -42,61 +30,13 @@ describe('trusted parent block selection pricing',()=>{
  it.each([0,-1,1.5])('rejects invalid parent quantity %s',quantity=>expect(execute([parent({quantity}),...selections()])).toEqual({operations:[]}));
  it.each(['0.00','-1','invalid'])('requires a paid parent (%s)',amount=>expect(execute([parent({cost:{amountPerQuantity:{amount}}}),...selections()])).toEqual({operations:[]}));
  it('rejects absent or duplicate parents, including three duplicates',()=>{expect(execute(selections())).toEqual({operations:[]});expect(execute([parent(),parent(),...selections()])).toEqual({operations:[]});expect(execute([parent(),parent(),parent(),...selections()])).toEqual({operations:[]});});
- it.each([{parentVariantId:{value:'999'}},{bundleId:{value:'different'}},{parentMarker:{value:'true'}},{quantity:0},{merchandise:{__typename:'CustomProduct'}}])('rejects a malformed member atomically %#',changes=>expect(execute([parent(),child('2',changes),child('3'),child('4')])).toEqual({operations:[]}));
+ it.each([{parentMarker:{value:'true'}},{quantity:0},{merchandise:{__typename:'CustomProduct'}}])('rejects a malformed member atomically %#',changes=>expect(execute([parent(),child('2',changes),child('3'),child('4')])).toEqual({operations:[]}));
  it('rejects malformed set IDs',()=>expect(execute([parent({setId:{value:'bad'},bundleId:{value:'bad'}}),...selections().map(c=>({...c,setId:{value:'bad'},bundleId:{value:'bad'}}))])).toEqual({operations:[]}));
  it('never makes another variant of the parent product free',()=>expect(execute([withBlocks(refs(['100'])),child('2',{merchandise:{__typename:'ProductVariant',id:variant('2'),product:{id:product('100')}}}),child('3'),child('4')])).toEqual({operations:[]}));
  it('rejects subscription parents or children',()=>{expect(execute([parent({sellingPlanAllocation:{sellingPlan:{id:'plan'}}}),...selections()])).toEqual({operations:[]});expect(execute([parent(),child('2',{sellingPlanAllocation:{sellingPlan:{id:'plan'}}}),child('3'),child('4')])).toEqual({operations:[]});});
  it('validates each parent against its own lists and isolates invalid sets',()=>{const p=withBlocks(refs(['20']),refs(['30']),refs(['40']));p.id='second-parent';p.setId={value:'set-second-12345678'};p.bundleId={value:'set-second-12345678'};expect(execute([parent(),...selections(),p,...selections().map(c=>({...c,id:c.id+'-second',setId:p.setId,bundleId:p.bundleId}))])).toEqual(expected);});
  it('rejects children linked to another set',()=>expect(execute([parent(),...selections().map(c=>({...c,setId:{value:'set-different-12345678'},bundleId:{value:'set-different-12345678'}}))])).toEqual({operations:[]}));
  it('fails closed above the line limit',()=>expect(execute([parent(),...Array.from({length:50},(_,i)=>child(String(i+2)))])).toEqual({operations:[]}));
-});
-
-
-describe('default-off test rollout',()=>{
- const lines=()=>[parent(),...selections()];
- it('does nothing without trusted configuration even when the cart opts in',()=>expect(run({cart:{testFlag:{value:'true'},lines:lines()}} as never)).toEqual({operations:[]}));
- it.each([null,{}, {testEnabled:false},{testEnabled:'true'},true,'true'])('rejects missing, disabled or malformed configuration %#',jsonValue=>expect(run({...input(lines()),cartTransform:{testConfiguration:{jsonValue}}} as never)).toEqual({operations:[]}));
- it.each([null,{value:'false'},{value:'TRUE'},{value:'1'}])('leaves ordinary and non-opted-in carts unchanged %#',testFlag=>expect(run({...input(lines()),cart:{lines:lines(),testFlag}} as never)).toEqual({operations:[]}));
- it('processes only an opted-in cart when the app-owned switch is enabled',()=>expect(execute(lines())).toEqual(expected));
- it('keeps authorization checks active for opted-in carts',()=>expect(execute([parent(),child('999'),child('3'),child('4')])).toEqual({operations:[]}));
-});
-
-
-// Project raw storefront properties using the actual input query bindings, so
-// tests catch accidentally querying the legacy keys instead of test-only keys.
-function executeProperties(lines: Array<{line: ReturnType<typeof parent> | ReturnType<typeof child>; properties: Record<string,string>}>) {
- const query=readFileSync(new URL('./run.graphql',import.meta.url),'utf8');
- const bindings=[...query.matchAll(/(\w+): attribute\(key: "([^"]+)"\)/g)];
- const projected=lines.map(({line,properties})=>{
-  const result:Record<string,unknown>={...line};
-  for(const [,alias,key] of bindings) result[alias]=key in properties?{value:properties[key]}:null;
-  return result;
- });
- return execute(projected);
-}
-const testProps=(isParent=false)=>isParent?{_ftr_test_set:set,_ftr_test_parent:'true'}:{_ftr_test_set:set,_ftr_test_parent_variant_id:'1'};
-const legacyProps=(isParent=false)=>isParent?{_set:set,_parent:'true',_bundleId:set}:{_set:set,_parent_product_id:'1',_bundleId:set};
-const rawTestSet=()=>[parent(),...selections()].map((line,i)=>({line,properties:testProps(i===0)}));
-
-describe('isolated test property contract',()=>{
- it('prices test-only properties without requiring a redundant bundle ID',()=>expect(executeProperties(rawTestSet())).toEqual(expected));
- it('ignores legacy-only lines even when the test cart switch is enabled',()=>expect(executeProperties([parent(),...selections()].map((line,i)=>({line,properties:legacyProps(i===0)})))).toEqual({operations:[]}));
- it('keeps legacy and test sets separate even with the same set value',()=>{
-  const legacy=[parent(),...selections()].map((line,i)=>({line:{...line,id:line.id+'-legacy'},properties:legacyProps(i===0)}));
-  expect(executeProperties([...rawTestSet(),...legacy])).toEqual(expected);
- });
- it.each(['_set','_parent','_parent_product_id','_bundleId'])('rejects mixed test and legacy keys atomically (%s)',key=>{
-  const lines=rawTestSet();lines[1].properties={...lines[1].properties,[key]:key==='_parent'?'true':set};
-  expect(executeProperties(lines)).toEqual({operations:[]});
- });
- it('rejects a mismatched optional test bundle ID',()=>{
-  const lines=rawTestSet();lines[1].properties={...lines[1].properties,_ftr_test_bundle_id:'set-other-12345678'};
-  expect(executeProperties(lines)).toEqual({operations:[]});
- });
- it('rejects four children when the trusted counts authorize only three',()=>{
-  const lines=rawTestSet();lines.push({line:child('20'),properties:testProps()});
-  expect(executeProperties(lines)).toEqual({operations:[]});
- });
 });
 
 
@@ -136,28 +76,32 @@ describe('theme-configured block quantities',()=>{
 });
 
 
-describe('deployment query budget and trusted quantity snapshot',()=>{
- it('keeps Function input query within Shopify 30-point cost and 3000-byte limits',()=>{
+
+function executeProperties(properties:Record<string,string>[]){
+ const query=readFileSync(new URL('./run.graphql',import.meta.url),'utf8');
+ const bindings=[...query.matchAll(/(\w+): attribute\(key: "([^"]+)"\)/g)];
+ return execute([parent(),...selections()].map((line,index)=>{
+  const projected:Record<string,unknown>={...line};
+  for(const [,alias,key] of bindings)projected[alias]=key in properties[index]?{value:properties[index][key]}:null;
+  return projected;
+ }));
+}
+describe('direct bundle protocol without demo switches',()=>{
+ it('prices the __bundle payload without a cart flag or app-owned configuration',()=>expect(executeProperties([
+  {__bundle:set,_parent:'true'},
+  {__bundle:set,_parent_product_id:'1'},
+  {__bundle:set,_parent_product_id:'1'},
+  {__bundle:set,_parent_product_id:'1'}
+ ])).toEqual(expected));
+ it('does not match the old _set protocol',()=>expect(executeProperties([
+  {_set:set,_parent:'true'},
+  {_set:set,_parent_product_id:'1'},
+  {_set:set,_parent_product_id:'1'},
+  {_set:set,_parent_product_id:'1'}
+ ])).toEqual({operations:[]}));
+ it('keeps input cost at or below 30 and query size below 3000 bytes',()=>{
   const query=readFileSync(new URL('./run.graphql',import.meta.url),'utf8');
-  const metafields=[...query.matchAll(/\bmetafield\s*\(/g)].length;
-  const leaves=query.match(/\b(id|quantity|amount|value)\b(?!\s*:)/g)||[];
-  // Metafield value/type/jsonValue leaves are free; this query uses jsonValue only.
-  const cost=metafields*3+leaves.length;
-  expect(cost).toBeLessThanOrEqual(30);
-  expect(Buffer.byteLength(query)).toBeLessThanOrEqual(3000);
+  const cost=3*[...query.matchAll(/\bmetafield\s*\(/g)].length+(query.match(/\b(id|quantity|amount|value)\b(?!\s*:)/g)||[]).length;
+  expect(cost).toBeLessThanOrEqual(30);expect(Buffer.byteLength(query)).toBeLessThanOrEqual(3000);
  });
- it('requires a versioned quantity snapshot rather than old product count fields',()=>{
-  const data=input([parent(),...selections()]);data.cartTransform.testConfiguration.jsonValue={testEnabled:true} as never;
-  expect(run(data as never)).toEqual({operations:[]});
- });
- it('does not let product fields override trusted snapshot counts',()=>{
-  const data=input([parent(),...selections()]);data.cartTransform.testConfiguration.jsonValue.blockCounts['100']=[2,1,1,0];
-  expect(run(data as never)).toEqual({operations:[]});
- });
-});
-
-
-it.each([null,[],{}, {'100':[1,1,1]}, {'100':[1,1,1,0,0]}, {'100':['1',1,1,0]}])('rejects malformed or absent snapshot counts %#',blockCounts=>{
- const data=input([parent(),...selections()]);data.cartTransform.testConfiguration.jsonValue.blockCounts=blockCounts as never;
- expect(run(data as never)).toEqual({operations:[]});
 });

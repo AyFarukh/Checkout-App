@@ -1,32 +1,25 @@
 query RunInput {
-  cartTransform {
-    testConfiguration: metafield(namespace: "$app", key: "bundle-test-rollout") { jsonValue }
-  }
   cart {
-    testFlag: attribute(key: "_ftr_bundle_pricing_test") { value }
     lines {
       id
       quantity
-      parentMarker: attribute(key: "_ftr_test_parent") { value }
-      setId: attribute(key: "_ftr_test_set") { value }
-      bundleId: attribute(key: "_ftr_test_bundle_id") { value }
-      parentVariantId: attribute(key: "_ftr_test_parent_variant_id") { value }
-      legacyParent: attribute(key: "_parent") { value }
-      legacySet: attribute(key: "_set") { value }
-      legacyParentVariant: attribute(key: "_parent_product_id") { value }
-      legacyBundle: attribute(key: "_bundleId") { value }
+      parentMarker: attribute(key: "_parent") { value }
+      setId: attribute(key: "__bundle") { value }
       cost { amountPerQuantity { amount } }
-      sellingPlanAllocation { sellingPlan { id } }
+      sellingPlanAllocation { __typename }
       merchandise {
         __typename
         ... on ProductVariant {
-          id
           product {
             id
             block1: metafield(namespace: "custom", key: "block_1_products") { type jsonValue }
             block2: metafield(namespace: "custom", key: "block_2_products") { type jsonValue }
             block3: metafield(namespace: "custom", key: "block_3_products") { type jsonValue }
             block4: metafield(namespace: "custom", key: "block_4_products") { type jsonValue }
+            block1Count: metafield(namespace: "custom", key: "no_of_block_1_free_products") { type jsonValue }
+            block2Count: metafield(namespace: "custom", key: "total_block_2_free_products") { type jsonValue }
+            block3Count: metafield(namespace: "custom", key: "total_block_3_free_products") { type jsonValue }
+            block4Count: metafield(namespace: "custom", key: "total_block_4_free_products") { type jsonValue }
           }
         }
       }
