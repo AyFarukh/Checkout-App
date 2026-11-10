@@ -26,10 +26,9 @@ function blockProducts(field) {
 function validVariant(line) {
   return typeof line.id === "string" && line.id.length > 0 && line.merchandise?.__typename === "ProductVariant" && typeof line.merchandise.id === "string" && VARIANT_ID.test(line.merchandise.id) && typeof line.merchandise.product?.id === "string" && PRODUCT_ID.test(line.merchandise.product.id) && Number.isSafeInteger(line.quantity) && line.quantity > 0 && !line.sellingPlanAllocation;
 }
-function requiredCount(field) {
-  if (field == null) return 0;
-  if (field.type !== "number_integer" || !Number.isSafeInteger(field.jsonValue) || field.jsonValue < 0 || field.jsonValue > MAX_PICKS) return null;
-  return field.jsonValue;
+function requiredCount(value) {
+  if (!Number.isSafeInteger(value) || value < 0 || value > MAX_PICKS) return null;
+  return value;
 }
 function fillsBlocks(picks, blocks) {
   const quantities = /* @__PURE__ */ new Map();
@@ -75,7 +74,7 @@ function fillsBlocks(picks, blocks) {
   }
   return true;
 }
-function priceSet(lines, setId) {
+function priceSet(lines, setId, blockCounts) {
   if (lines.some((line) => line.bundleId != null && line.bundleId.value !== setId || [line.legacyParent, line.legacySet, line.legacyParentVariant, line.legacyBundle].some((attribute) => attribute != null)) || new Set(lines.map((line) => line.id)).size !== lines.length) return [];
   const parents = lines.filter((line) => line.parentMarker?.value === "true");
   if (parents.length !== 1) return [];
@@ -86,7 +85,10 @@ function priceSet(lines, setId) {
   const parentProduct = parent.merchandise.product;
   const blocks = [];
   const productLists = [parentProduct.block1, parentProduct.block2, parentProduct.block3, parentProduct.block4];
-  const countFields = [parentProduct.block1Count, parentProduct.block2Count, parentProduct.block3Count, parentProduct.block4Count];
+  const productNumber = parentProduct.id.split("/").pop();
+  if (!Object.prototype.hasOwnProperty.call(blockCounts, productNumber)) return [];
+  const countFields = blockCounts[productNumber];
+  if (!Array.isArray(countFields) || countFields.length !== 4) return [];
   let expectedPicks = 0;
   for (let index = 0; index < productLists.length; index++) {
     const quantity = requiredCount(countFields[index]);
@@ -115,7 +117,9 @@ function priceSet(lines, setId) {
 }
 function run(input) {
   const config = input?.cartTransform?.testConfiguration?.jsonValue;
-  if (!config || typeof config !== "object" || Array.isArray(config) || config.testEnabled !== true || input?.cart?.testFlag?.value !== "true") return { operations: [] };
+  if (!config || typeof config !== "object" || Array.isArray(config) || config.testEnabled !== true || config.countsVersion !== 1 || input?.cart?.testFlag?.value !== "true") return { operations: [] };
+  const blockCounts = config.blockCounts;
+  if (!blockCounts || typeof blockCounts !== "object" || Array.isArray(blockCounts)) return { operations: [] };
   const lines = input?.cart?.lines || [];
   if (!Array.isArray(lines) || lines.length === 0 || lines.length > MAX_CART_LINES) return { operations: [] };
   const sets = /* @__PURE__ */ new Map();
@@ -127,7 +131,7 @@ function run(input) {
     sets.set(setId, members);
   }
   const operations = [];
-  for (const [setId, members] of sets) operations.push(...priceSet(members, setId));
+  for (const [setId, members] of sets) operations.push(...priceSet(members, setId, blockCounts));
   return { operations };
 }
 

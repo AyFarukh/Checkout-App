@@ -36,6 +36,11 @@ node scripts/set-bundle-test-rollout.js \
   --enabled true
 ```
 
+**Re-run this command after pulling the query-complexity fix, even if testing was
+previously enabled.** It now scans the existing quantity metafields and stores a
+versioned, compact count snapshot in our app-owned test configuration. Older
+`{"testEnabled":true}` configurations alone no longer enable pricing.
+
 Continue only if it returns `"verified": true` and `"enabled": true`. It checks
 that the API token and selected registration belong to our app before writing,
 and verifies the value through a read-back. It does not register/delete a Function
@@ -96,6 +101,18 @@ The Function now uses the SAME parent-product fields as the theme:
 | `custom.block_3_products` | `custom.total_block_3_free_products` |
 | `custom.block_4_products` | `custom.total_block_4_free_products` |
 
+The four allowed-product lists are read live in the Function. The four quantity
+fields are read by the enable command and saved as a trusted snapshot, keeping the
+Function input query at **30 points** instead of 42. Its budget is now protected
+by a regression test. No theme property names changed for this fix.
+
+**After changing bundle quantity metafields or adding a new bundle product,
+re-run the enable command to refresh the snapshot before testing.** Product-list
+changes remain live. This is an explicit test snapshot, not automatic production
+quantity synchronization. At most 5,000 products are scanned; oversized snapshots
+are rejected before writing to stay under Shopify's 10,000-byte metafield input
+limit. Disable still works without a product scan.
+
 Lists must be `list.product_reference`; quantities must be nonnegative
 `number_integer` metafields. Missing/zero quantities disable a block. An active
 block requires a nonempty valid product list. At least one block must be active.
@@ -142,10 +159,10 @@ do not publish it as the live theme for this test.
 
 - 12 theme tests cover opt-in, conversion, flag failures, normal/Loop preservation,
   origin isolation and the real purchase-mode guard in both switch directions.
-- 71 Function cases cover the four product lists and quantities, overlap, merged
+- 80 Function cases cover the four product lists and quantities, overlap, merged
   quantities, authorization, malformed configuration, legacy-key isolation and
   default-off controls.
-- 7 backend switch tests cover ownership, the specific target, errors and read-back.
+- 15 backend switch tests cover ownership, the specific target, errors and read-back.
 - Compiled Function checks accepted a four-pick fixture, rejected an unauthorized
   selection and processed 50 included units within the runtime instruction limit.
 - Theme check has the same 129 existing errors as the branch baseline; no new

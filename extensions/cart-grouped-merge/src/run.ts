@@ -1,7 +1,7 @@
 /**
  * FTR bundle pricing. Line properties identify a selection; Shopify product
- * metafields authorize it. Up to four product blocks and their quantity
- * metafields define the permitted selections for each paid parent.
+ * metafields authorize it. Product lists are live; the app-owned quantity
+ * snapshot supplies the required counts without exceeding input query cost.
  * Invalid/incomplete sets emit no operations. Parent pricing is never changed.
  */
 const MAX_CART_LINES = 50;
@@ -28,8 +28,7 @@ type Line = {
   merchandise?: {
     __typename?: string;
     id?: string;
-    product?: {id?: string; block1?: Metafield | null; block2?: Metafield | null; block3?: Metafield | null; block4?: Metafield | null;
-      block1Count?: Metafield | null; block2Count?: Metafield | null; block3Count?: Metafield | null; block4Count?: Metafield | null};
+    product?: {id?: string; block1?: Metafield | null; block2?: Metafield | null; block3?: Metafield | null; block4?: Metafield | null};
   };
 };
 
@@ -52,11 +51,9 @@ function validVariant(line: Line): boolean {
 
 type Block = {products: Set<string>; quantity: number};
 
-function requiredCount(field: Metafield | null | undefined): number | null {
-  if (field == null) return 0;
-  if (field.type !== 'number_integer' || !Number.isSafeInteger(field.jsonValue) ||
-      (field.jsonValue as number) < 0 || (field.jsonValue as number) > MAX_PICKS) return null;
-  return field.jsonValue as number;
+function requiredCount(value: unknown): number | null {
+  if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > MAX_PICKS) return null;
+  return value as number;
 }
 
 // Bounded flow assigns product quantities to block capacities. Reverse edges
@@ -102,7 +99,7 @@ function fillsBlocks(picks: string[], blocks: Block[]): boolean {
   return true;
 }
 
-function priceSet(lines: Line[], setId: string): PriceOperation[] {
+function priceSet(lines: Line[], setId: string, blockCounts: Record<string, unknown>): PriceOperation[] {
   // Test sets must not carry the legacy properties consumed by the old app.
   // An optional test bundle ID may duplicate the set ID but never contradict it.
   if (lines.some(line => (line.bundleId != null && line.bundleId.value !== setId) ||
@@ -118,7 +115,10 @@ function priceSet(lines: Line[], setId: string): PriceOperation[] {
   const parentProduct = parent.merchandise!.product!;
   const blocks: Block[] = [];
   const productLists = [parentProduct.block1, parentProduct.block2, parentProduct.block3, parentProduct.block4];
-  const countFields = [parentProduct.block1Count, parentProduct.block2Count, parentProduct.block3Count, parentProduct.block4Count];
+  const productNumber = parentProduct.id!.split('/').pop()!;
+  if (!Object.prototype.hasOwnProperty.call(blockCounts, productNumber)) return [];
+  const countFields = blockCounts[productNumber];
+  if (!Array.isArray(countFields) || countFields.length !== 4) return [];
   let expectedPicks = 0;
   for (let index = 0; index < productLists.length; index++) {
     const quantity = requiredCount(countFields[index]);
@@ -161,7 +161,10 @@ export function run(input: RunInput): {operations: PriceOperation[]} {
   const config = input?.cartTransform?.testConfiguration?.jsonValue;
   if (!config || typeof config !== 'object' || Array.isArray(config) ||
       (config as {testEnabled?: unknown}).testEnabled !== true ||
+      (config as {countsVersion?: unknown}).countsVersion !== 1 ||
       input?.cart?.testFlag?.value !== 'true') return {operations: []};
+  const blockCounts = (config as {blockCounts?: unknown}).blockCounts;
+  if (!blockCounts || typeof blockCounts !== 'object' || Array.isArray(blockCounts)) return {operations: []};
   const lines = input?.cart?.lines || [];
   if (!Array.isArray(lines) || lines.length === 0 || lines.length > MAX_CART_LINES) return {operations: []};
   const sets = new Map<string, Line[]>();
@@ -172,6 +175,6 @@ export function run(input: RunInput): {operations: PriceOperation[]} {
     members.push(line);sets.set(setId, members);
   }
   const operations: PriceOperation[] = [];
-  for (const [setId, members] of sets) operations.push(...priceSet(members, setId));
+  for (const [setId, members] of sets) operations.push(...priceSet(members, setId, blockCounts as Record<string, unknown>));
   return {operations};
 }

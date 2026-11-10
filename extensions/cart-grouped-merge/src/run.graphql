@@ -27,10 +27,6 @@ query RunInput {
             block2: metafield(namespace: "custom", key: "block_2_products") { type jsonValue }
             block3: metafield(namespace: "custom", key: "block_3_products") { type jsonValue }
             block4: metafield(namespace: "custom", key: "block_4_products") { type jsonValue }
-            block1Count: metafield(namespace: "custom", key: "no_of_block_1_free_products") { type jsonValue }
-            block2Count: metafield(namespace: "custom", key: "total_block_2_free_products") { type jsonValue }
-            block3Count: metafield(namespace: "custom", key: "total_block_3_free_products") { type jsonValue }
-            block4Count: metafield(namespace: "custom", key: "total_block_4_free_products") { type jsonValue }
           }
         }
       }

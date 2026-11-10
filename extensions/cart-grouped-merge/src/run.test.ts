@@ -8,7 +8,18 @@ const count=(quantity:number)=>({type:'number_integer',jsonValue:quantity});
 const refs=(ids:string[])=>({type:'list.product_reference',jsonValue:ids.map(product)});
 function parent(changes:Record<string,unknown>={}){return {id:'parent-line',quantity:1,parentMarker:{value:'true'},setId:{value:set},bundleId:{value:set},parentVariantId:null,cost:{amountPerQuantity:{amount:'50.00'}},sellingPlanAllocation:null,merchandise:{__typename:'ProductVariant',id:variant('1'),product:{id:product('100'),block1:refs(['2','20']),block2:refs(['3','30']),block3:refs(['4','40']),block1Count:count(1),block2Count:count(1),block3Count:count(1)}},...changes};}
 function child(id:string,changes:Record<string,unknown>={}){return {id:'line-'+id,quantity:1,parentMarker:null,setId:{value:set},bundleId:{value:set},parentVariantId:{value:'1'},sellingPlanAllocation:null,merchandise:{__typename:'ProductVariant',id:variant(id),product:{id:product(id)}},...changes};}
-function input(lines:unknown[]){return {cartTransform:{testConfiguration:{jsonValue:{testEnabled:true}}},cart:{testFlag:{value:'true'},lines}};}
+function input(lines:unknown[]){
+ const blockCounts:Record<string,unknown>={};
+ for(const line of lines as ReturnType<typeof parent>[]) {
+  const p=line.merchandise?.product;
+  if(!p?.id || !('block1Count' in p))continue;
+  blockCounts[p.id.split('/').pop()!]=[1,2,3,4].map(index=>{
+   const field=(p as Record<string,unknown>)['block'+index+'Count'] as {type?:string;jsonValue?:unknown}|null;
+   return field==null?0:field.type==='number_integer'?field.jsonValue:-1;
+  });
+ }
+ return {cartTransform:{testConfiguration:{jsonValue:{testEnabled:true,countsVersion:1,blockCounts}}},cart:{testFlag:{value:'true'},lines}};
+}
 function execute(lines:unknown[]){return run(input(lines) as Parameters<typeof run>[0]);}
 const zero=(id:string)=>({lineUpdate:{cartLineId:'line-'+id,price:{adjustment:{fixedPricePerUnit:{amount:'0.00'}}}}});
 const selections=()=>[child('2'),child('3'),child('4')];
@@ -122,4 +133,31 @@ describe('theme-configured block quantities',()=>{
  it('handles a large repeated selection within the bounded quantity limit',()=>expect(execute([
   withRules({block1Count:count(48)}),child('2',{quantity:48}),child('3'),child('4')
  ])).toEqual(expected));
+});
+
+
+describe('deployment query budget and trusted quantity snapshot',()=>{
+ it('keeps Function input query within Shopify 30-point cost and 3000-byte limits',()=>{
+  const query=readFileSync(new URL('./run.graphql',import.meta.url),'utf8');
+  const metafields=[...query.matchAll(/\bmetafield\s*\(/g)].length;
+  const leaves=query.match(/\b(id|quantity|amount|value)\b(?!\s*:)/g)||[];
+  // Metafield value/type/jsonValue leaves are free; this query uses jsonValue only.
+  const cost=metafields*3+leaves.length;
+  expect(cost).toBeLessThanOrEqual(30);
+  expect(Buffer.byteLength(query)).toBeLessThanOrEqual(3000);
+ });
+ it('requires a versioned quantity snapshot rather than old product count fields',()=>{
+  const data=input([parent(),...selections()]);data.cartTransform.testConfiguration.jsonValue={testEnabled:true} as never;
+  expect(run(data as never)).toEqual({operations:[]});
+ });
+ it('does not let product fields override trusted snapshot counts',()=>{
+  const data=input([parent(),...selections()]);data.cartTransform.testConfiguration.jsonValue.blockCounts['100']=[2,1,1,0];
+  expect(run(data as never)).toEqual({operations:[]});
+ });
+});
+
+
+it.each([null,[],{}, {'100':[1,1,1]}, {'100':[1,1,1,0,0]}, {'100':['1',1,1,0]}])('rejects malformed or absent snapshot counts %#',blockCounts=>{
+ const data=input([parent(),...selections()]);data.cartTransform.testConfiguration.jsonValue.blockCounts=blockCounts as never;
+ expect(run(data as never)).toEqual({operations:[]});
 });

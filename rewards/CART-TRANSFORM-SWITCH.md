@@ -15,42 +15,33 @@ The merchant registered our Function separately, as recorded above.
 Two independent conditions are required before our Function emits operations:
 
 1. Its own Cart Transform registration has an app-owned JSON metafield with
-   namespace `$app`, key `bundle-test-rollout`, value `{"testEnabled":true}`.
+   namespace `$app`, key `bundle-test-rollout`, containing `testEnabled: true`,
+   `countsVersion: 1` and the validated `blockCounts` snapshot.
 2. The individual cart has attribute `_ftr_bundle_pricing_test` equal to `true`.
 
 Missing/false/malformed configuration or an absent cart flag returns no operations.
 The cart flag is not secret and does not bypass product or quantity authorization.
 There is deliberately no unrestricted production mode in this implementation.
 
-Publish only when ready, register OUR Function through its owning app, and retain
-all existing registrations. Registering it without the configuration leaves it off.
-Record the NEW registration ID returned by `cartTransformCreate`; never use the
-old registration ID as the metafield owner. From our app's authorized Admin API,
-set its configuration with this schema-validated mutation and variables:
+Our Function is already registered. Publish its code update only when ready,
+retain all existing registrations, and refresh the app-owned configuration using
+the checked command from the backend's existing private environment:
 
-```graphql
-mutation SetBundleTestRollout($metafields: [MetafieldsSetInput!]!) {
-  metafieldsSet(metafields: $metafields) {
-    metafields { id namespace key value }
-    userErrors { field message }
-  }
-}
+```sh
+cd rewards
+node scripts/set-bundle-test-rollout.js \
+  --shop YOUR-STORE.myshopify.com \
+  --transform-id gid://shopify/CartTransform/138019188 \
+  --enabled true
 ```
 
-```json
-{
-  "metafields": [{
-    "ownerId": "REPLACE_WITH_OUR_NEW_CART_TRANSFORM_GID",
-    "namespace": "$app",
-    "key": "bundle-test-rollout",
-    "type": "json",
-    "value": "{\"testEnabled\":true}"
-  }]
-}
-```
-
-Require empty `userErrors`. Run this through our app's API context so `$app`
-resolves to the same reserved namespace as the Function input query.
+This reads all four count metafields, validates and snapshots them, writes only
+our registration's app-owned configuration, and verifies it by read-back. Require
+`verified: true` and `enabled: true`. A manually written `testEnabled: true` alone
+is insufficient after the complexity fix. Re-run this command after changing
+quantity metafields or adding bundle products. The ordinary product allowlists
+remain live. A different GraphiQL app's `$app` namespace cannot configure ours.
+See the theme test guide for automatic URL opt-in without console commands.
 
 In the browser console on your test storefront, opt ONLY that cart into testing:
 
@@ -76,10 +67,16 @@ the old registration for a fully isolated checkout test.
 
 ### Theme-compatible variable blocks
 
-The validator now uses all four product lists and the exact quantity fields found
+The validator uses all four live product lists and an app-owned snapshot of the exact quantity fields found
 in the theme: `no_of_block_1_free_products`, `total_block_2_free_products`,
 `total_block_3_free_products`, `total_block_4_free_products`, in namespace `custom`.
-Missing/zero counts disable blocks; active counts require valid authorized lists.
+The enable command reads these quantity fields from Shopify and saves them in
+`countsVersion: 1`, `blockCounts: {numericProductId: [count1,count2,count3,count4]}`
+in the app-owned JSON configuration. Re-run enable after changing counts or adding
+bundle products. Missing/zero counts disable blocks; active counts require valid
+live authorized lists. This avoids four runtime metafield lookups, reducing the
+query from 42 to the supported maximum of 30 points. Existing configurations with
+only `testEnabled: true` must be refreshed.
 Four-child and variable-count bundles are supported when they fit those trusted
 rules. Frontend labels and quantities are not trusted as authorization.
 See the theme test guide for URL opt-in and the new ownership-checked command to
@@ -108,7 +105,7 @@ Our replacement belongs to `Freetheroots Checkout Events`:
 ## Prepared replacement behavior
 
 The Function reads `custom.block_1_products` through `custom.block_4_products`
-and the matching integer count fields listed above. At least one block must be
+and the matching integer counts snapshotted by the enable command above. At least one block must be
 active. Each active block requires a valid, nonempty `list.product_reference`.
 No separate manual product allowlist is needed. Overlapping lists are allocated
 against every block's required quantity using bounded flow, not just combined
@@ -162,7 +159,7 @@ variant rules before activation. Optional blocks are supported when their count 
 
 ## Verification performed
 
-- 71 Function unit cases passed (authorization, overlaps, quantities, malformed
+- 80 Function unit cases passed (authorization, overlaps, quantities, malformed
   configuration, independent sets and unsupported subscription lines).
 - The new input query validated against the 2026-07 Cart Transform schema.
 - The complete Shopify app build passed.
