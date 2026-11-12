@@ -104,3 +104,28 @@
 }
 .ftr-sub .ftr-sub__main .ftr-sub__manage .ftr-sub__danger strong,.ftr-sub .ftr-sub__main .ftr-sub__manage .ftr-sub__danger>.ftr-sub__manage-icon{color:#d92f26}.ftr-sub .ftr-sub__main .ftr-sub__error{color:#aa2525}
 @media(max-width:700px){.ftr-sub .ftr-sub__next-grid{grid-template-columns:minmax(0,1.55fr) minmax(0,1fr)}.ftr-sub .ftr-sub__next-date{font-size:14.5px}}
+
+/* Keep the recipient separate from the complete, horizontally readable address. */
+.ftr-sub .ftr-sub__address{min-width:0;max-width:100%;white-space:normal}
+.ftr-sub .ftr-sub__address-name{display:block;font-weight:700}
+.ftr-sub .ftr-sub__address-line{display:block;max-width:100%;white-space:nowrap;overflow-x:auto}
+.ftr-sub .ftr-sub__slider-controls{display:none}
+@media(max-width:700px){
+ .ftr-sub .ftr-sub__recommend{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:calc((100% - 20px)/3);gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;overscroll-behavior-x:contain;scrollbar-width:none}
+ .ftr-sub .ftr-sub__recommend::-webkit-scrollbar{display:none}
+ .ftr-sub .ftr-sub__rec{scroll-snap-align:start;padding-right:0;border:0}
+ .ftr-sub .ftr-sub__rec img{height:90px}
+ .ftr-sub .ftr-sub__main .ftr-sub__rec h3{font-size:11px;line-height:1.45}
+ .ftr-sub .ftr-sub__rec>p{font-size:11px}
+ .ftr-sub .ftr-sub__rec>.ftr-sub__btn{min-height:40px;font-size:11px}
+ .ftr-sub .ftr-sub__slider-controls{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:12px}
+ .ftr-sub .ftr-sub__slider-controls[hidden]{display:none}
+ .ftr-sub .ftr-sub__slider-controls .ftr-sub__btn{min-height:44px;padding:8px 12px}
+ .ftr-sub .ftr-sub__slider-status{font-size:11px;white-space:nowrap}
+ .ftr-sub .ftr-sub__manage{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+ .ftr-sub .ftr-sub__manage button{border:1px solid var(--ftr-border);border-radius:8px;min-height:120px;padding:12px 5px}
+ .ftr-sub .ftr-sub__manage strong{font-size:11px;line-height:1.4}
+ .ftr-sub .ftr-sub__manage small{font-size:10px;line-height:1.45}
+ .ftr-sub .ftr-sub__manage-icon .ftr-sub__icon{width:24px;height:24px}
+}
+.ftr-sub .ftr-sub__columns>*{min-width:0}

@@ -272,3 +272,35 @@ test('customer copy describes gifting availability and plural delivery frequency
  await expect(page.getByText('Gifting is currently unavailable.',{exact:true})).toBeVisible();await expect(page.getByText('Delivery every 3 months',{exact:true}).first()).toBeVisible();
  await expect(page.locator('.ftr-sub__main')).not.toContainText(/gift-order API|custom dashboard|Loop/);
 });
+
+const threeUpProducts=Array.from({length:5},(_,i)=>`<article class="ftr-sub__rec" data-variants='[{"id":"${901+i}","title":"Product ${i+1}"}]'><h3>Product ${i+1}</h3><p>$12.00</p><button class="ftr-sub__btn" type="button" data-add-once>Add</button></article>`).join('');
+test('mobile recommendations show three and slide without sending a mutation',async({page})=>{
+ await page.setViewportSize({width:390,height:844});const calls=await setup(page,{recommendations:threeUpProducts});const track=page.locator('.ftr-sub__recommend');
+ const visible=()=>track.evaluate(n=>[...n.children].filter(c=>{const a=c.getBoundingClientRect(),b=n.getBoundingClientRect();return a.left>=b.left-2&&a.right<=b.right+2;}).map(c=>c.querySelector('h3').textContent));
+ expect(await visible()).toEqual(['Product 1','Product 2','Product 3']);
+ await page.getByRole('button',{name:'Next recommended products',exact:true}).click();await expect.poll(visible).toEqual(['Product 3','Product 4','Product 5']);
+ await page.getByRole('button',{name:'Add Product 5 once',exact:true}).click();await expect(page.getByRole('dialog')).toBeVisible();expect(calls.filter(c=>c.path.endsWith('action-execute'))).toHaveLength(0);
+ await page.getByRole('button',{name:'Close',exact:true}).click();await page.setViewportSize({width:1200,height:900});await expect(page.getByRole('button',{name:'Next recommended products',exact:true})).toBeHidden();expect(await visible()).toHaveLength(5);
+});
+test('mobile actions form two rows of three and address has bold name above one line',async({page})=>{
+ await page.setViewportSize({width:390,height:844});await setup(page);
+ const boxes=await page.locator('.ftr-sub__manage>button').evaluateAll(ns=>ns.map(n=>n.getBoundingClientRect().top));expect(new Set(boxes.slice(0,3)).size).toBe(1);expect(new Set(boxes.slice(3)).size).toBe(1);expect(boxes[3]).toBeGreaterThan(boxes[0]);
+ await expect(page.locator('.ftr-sub__address-name')).toHaveText('Test User');expect(Number(await page.locator('.ftr-sub__address-name').evaluate(n=>getComputedStyle(n).fontWeight))).toBeGreaterThanOrEqual(600);
+ await expect(page.locator('.ftr-sub__address-line')).toHaveText('1 Test Road, Boston, MA, 02108, US');expect(await page.locator('.ftr-sub__address-line').evaluate(n=>getComputedStyle(n).whiteSpace)).toBe('nowrap');expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+test('read-only mobile slider navigates both directions while Add stays disabled',async({page})=>{
+ await page.setViewportSize({width:700,height:900});await setup(page,{recommendations:threeUpProducts,mutationsEnabled:false});
+ await expect(page.getByRole('button',{name:'Previous recommended products',exact:true})).toBeDisabled();
+ await page.getByRole('button',{name:'Next recommended products',exact:true}).click();await expect(page.getByRole('button',{name:'Next recommended products',exact:true})).toBeDisabled();
+ await page.getByRole('button',{name:'Previous recommended products',exact:true}).click();await expect(page.getByRole('button',{name:'Previous recommended products',exact:true})).toBeDisabled();
+ await expect(page.getByRole('button',{name:'Add Product 1 once',exact:true})).toBeDisabled();
+});
+test('short mobile recommendation list needs no slider controls',async({page})=>{
+ await page.setViewportSize({width:390,height:844});await setup(page,{recommendations:threeUpProducts.split('</article>').slice(0,2).join('</article>')+'</article>'});
+ await expect(page.getByRole('button',{name:'Next recommended products',exact:true})).toBeHidden();
+ await page.screenshot({path:'/tmp/ftr-mobile-layout.png',fullPage:true});
+});
+test('long address stays inside its card on mobile, tablet and desktop',async({page})=>{
+ const sub=baseSubscription();sub.shippingAddress.address1='123 Long Road, '.repeat(30);await setup(page,{subscriptions:[sub]});
+ for(const width of [320,390,701,1280]){await page.setViewportSize({width,height:900});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);const line=page.locator('.ftr-sub__address-line');expect(await line.evaluate(n=>n.scrollWidth>n.clientWidth)).toBe(true);await expect(line).toContainText(sub.shippingAddress.address1);}
+});
