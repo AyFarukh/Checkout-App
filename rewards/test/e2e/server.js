@@ -1,3 +1,5 @@
+import {subscriberJourneyService} from '../../src/services/subscriber-journey.service.js';
+import {SubscriberJourney,JourneySkip} from '../../src/models/SubscriberJourney.js';
 import {subscriptionMutationAllowed} from '../../src/services/loop-action-access.service.js';
 // Test-only Shopify proxy emulator, real Express routes, Mongo and HTTP Loop fixture.
 import express from 'express';
@@ -32,7 +34,9 @@ app.use('/apps/ftr-welcome/subscriptions',(req,_res,next)=>{
  q.signature=createHmac('sha256','fixture-secret').update(Object.keys(q).sort().map(k=>`${k}=${q[k]}`).join('')).digest('hex');
  req.url=url.pathname+'?'+new URLSearchParams(q);next();
 },createSubscriptionActionRouter());
-app.post('/__fixture/reset',async(req,res)=>{provider.reset();const production=req.body?.production===true;customerId=production?'987':'123';Object.assign(process.env,{NODE_ENV:production?'production':'test',LOOP_ADMIN_SHOP:'test.myshopify.com',LOOP_PRODUCTION_MUTATIONS_ENABLED:production?'true':'false',LOOP_ADMIN_API_URL:production?'https://api.loopsubscriptions.com/admin/2026-04':provider.url});if(production){provider.subscription.id=55555;provider.subscription.customer.shopifyId=987;}if(req.body?.twoLines)provider.subscription.lineItems.push({id:9,quantity:1,productTitle:'Second product'});await LoopActionAttempt.deleteMany({});res.json({ok:true});});
+app.post('/__fixture/reset',async(req,res)=>{provider.reset();process.env.LOOP_JOURNEY_ENABLED='false';await SubscriberJourney.deleteMany({});await JourneySkip.deleteMany({});const production=req.body?.production===true;customerId=production?'987':'123';Object.assign(process.env,{NODE_ENV:production?'production':'test',LOOP_ADMIN_SHOP:'test.myshopify.com',LOOP_PRODUCTION_MUTATIONS_ENABLED:production?'true':'false',LOOP_ADMIN_API_URL:production?'https://api.loopsubscriptions.com/admin/2026-04':provider.url});if(production){provider.subscription.id=55555;provider.subscription.customer.shopifyId=987;}if(req.body?.twoLines)provider.subscription.lineItems.push({id:9,quantity:1,productTitle:'Second product'});await LoopActionAttempt.deleteMany({});res.json({ok:true});});
+app.post('/__fixture/journey',async(_req,res)=>{Object.assign(process.env,{LOOP_JOURNEY_ENABLED:'true',LOOP_JOURNEY_AUTOMATION_ENABLED:'true',LOOP_JOURNEY_MANUAL_DISCOUNTS_VERIFIED:'true',LOOP_JOURNEY_WEBHOOK_VERIFIED:'true',LOOP_JOURNEY_WEBHOOK_SECRETS:'fixture-signing-key'});provider.journeyDiscounts=true;provider.subscription.totalLineItemDiscountedPrice=100;provider.history=[{id:1,shopifyId:101,status:'PROCESSED',financialStatus:'paid',shopifyProcessedAt:new Date(Date.now()-86400000).toISOString()}];await subscriberJourneyService.view({shop:'test.myshopify.com',customerId},{subscriptionId:String(provider.subscription.id)});await subscriberJourneyService.processBatch();res.json({ok:true});});
+app.post('/__fixture/journey-reconcile',async(_req,res)=>{await subscriberJourneyService.processBatch();res.json({ok:true});});
 app.get('/__fixture/state',async(_req,res)=>res.json({writes:provider.writes.length,attempts:await LoopActionAttempt.find({}).select('action status verifiedAt -_id')}));
 const server=app.listen(4123,'127.0.0.1');
 async function close(){await new Promise(r=>server.close(r));await provider.close();await mongoose.disconnect();await mongo.stop();process.exit(0);}

@@ -1,4 +1,4 @@
-(()=>{'use strict';const root=document.querySelector('[id^="ftr-subscription-dashboard-"]');if(!root||!root.querySelector('.ftr-sub__loading'))return;const main=root.querySelector('.ftr-sub__main'),endpoint=root.dataset.endpoint;const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=String(text);return n};const add=(parent,...children)=>{for(const child of children)if(child)parent.append(child);return parent};const pick=(o,...keys)=>keys.map(k=>o?.[k]).find(v=>v!==undefined&&v!==null&&v!=='');const number=v=>{if(v==null||v==='')return null;if(typeof v==='object')return number(pick(v,'amount','value','price','total'));const n=Number(String(v).replace(/[^0-9.-]/g,''));return Number.isFinite(n)?n:null};const money=(v,c)=>v==null?'Price unavailable':new Intl.NumberFormat('en-US',{style:'currency',currency:c||'USD'}).format(v);const date=v=>{if(v===null||v===undefined||v==='')return'Not scheduled';const raw=String(v);const d=(typeof v==='number'||/^\d{10,13}$/.test(raw))?new Date(Number(v)*(Number(v)<1e12?1000:1)):new Date(v);return Number.isNaN(d.getTime())?'Not scheduled':d.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric',timeZone:'UTC'})};const img=v=>typeof v==='string'?v:pick(v,'url','src','originalSrc')||'';const lines=s=>[s.lines,s.lineItems,s.subscriptionLines,s.items,s.products,s.subscriptionProducts].find(Array.isArray)||[];const card=(title,id)=>{const n=el('section','ftr-sub__card');if(id)n.id=id;if(title){const h=el('h2','',title),name=({'Your subscription':'box','Payment details':'card','Shipping address':'truck'})[title];if(name)h.prepend(icon(name));add(n,h);}return n};const btn=(label,primary=false,action=label)=>{const b=el('button','ftr-sub__btn'+(primary?' ftr-sub__btn--primary':''),label);b.type='button';const symbol=({'Order now':'cart','Gift':'gift','Skip':'skip','Skip next order':'skip','Reschedule':'calendar','Delay':'clock'})[label];if(symbol)b.prepend(icon(symbol));if(mutationAccess===false&&actionMap[action]&&actionMap[action]!=='gift'){b.disabled=true;b.title='Changes to this subscription are currently unavailable.';}if(actionMap[action]==='gift'){b.disabled=true;b.title='Gift is currently unavailable.';return b;}b.addEventListener('click',()=>confirmAction(action));return b};let selectedSubscription=null,mutationAccess=false;
+(()=>{'use strict';const root=document.querySelector('[id^="ftr-subscription-dashboard-"]');if(!root||!root.querySelector('.ftr-sub__loading'))return;const main=root.querySelector('.ftr-sub__main'),endpoint=root.dataset.endpoint;const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=String(text);return n};const add=(parent,...children)=>{for(const child of children)if(child)parent.append(child);return parent};const pick=(o,...keys)=>keys.map(k=>o?.[k]).find(v=>v!==undefined&&v!==null&&v!=='');const number=v=>{if(v==null||v==='')return null;if(typeof v==='object')return number(pick(v,'amount','value','price','total'));const n=Number(String(v).replace(/[^0-9.-]/g,''));return Number.isFinite(n)?n:null};const money=(v,c)=>v==null?'Price unavailable':new Intl.NumberFormat('en-US',{style:'currency',currency:c||'USD'}).format(v);const date=v=>{if(v===null||v===undefined||v==='')return'Not scheduled';const raw=String(v);const d=(typeof v==='number'||/^\d{10,13}$/.test(raw))?new Date(Number(v)*(Number(v)<1e12?1000:1)):new Date(v);return Number.isNaN(d.getTime())?'Not scheduled':d.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric',timeZone:'UTC'})};const img=v=>typeof v==='string'?v:pick(v,'url','src','originalSrc')||'';const lines=s=>[s.lines,s.lineItems,s.subscriptionLines,s.items,s.products,s.subscriptionProducts].find(Array.isArray)||[];const card=(title,id)=>{const n=el('section','ftr-sub__card');if(id)n.id=id;if(title){const h=el('h2','',title),name=({'Your subscription':'box','Payment details':'card','Shipping address':'truck'})[title];if(name)h.prepend(icon(name));add(n,h);}return n};const btn=(label,primary=false,action=label)=>{const b=el('button','ftr-sub__btn'+(primary?' ftr-sub__btn--primary':''),label);b.type='button';const symbol=({'Order now':'cart','Gift':'gift','Skip':'skip','Skip next order':'skip','Reschedule':'calendar','Delay':'clock'})[label];if(symbol)b.prepend(icon(symbol));if(mutationAccess===false&&actionMap[action]&&actionMap[action]!=='gift'){b.disabled=true;b.title='Changes to this subscription are currently unavailable.';}if(actionMap[action]==='gift'){b.disabled=true;b.title='Gift is currently unavailable.';return b;}b.addEventListener('click',()=>confirmAction(action));return b};let selectedSubscription=null,mutationAccess=false,recommendationCleanup=null,journeyRequest=0,journeySnapshot=null;
 const actionMap={"Add one-time product":"edit-products","Manage next order":"reschedule","Order now":"order-now","Skip":"skip","Skip next order":"skip","Reschedule":"reschedule","Change next order":"reschedule","Delay":"delay","Change frequency":"frequency","Pause subscription":"pause","Cancel subscription":"cancel","Edit products":"edit-products","Edit subscription":"edit-products","Edit address":"edit-address","Gift":"gift","Order notes":"order-note","Discount code":"discount"};
 const actionDescriptions={
  'skip':'Skip your next order. Your subscription will continue with the following scheduled order.',
@@ -31,6 +31,7 @@ const actionMessages={
  BUNDLE_REQUIRES_LOOP_EDITOR:'Please contact support to update this bundle.',
  LAST_LINE_REMOVAL_BLOCKED:'Keep at least one recurring product in your subscription, or choose Cancel subscription.',
  GIFT_API_UNAVAILABLE:'Gifting is currently unavailable.',
+ JOURNEY_REWARD_PENDING:'Your journey reward is awaiting confirmation. Please check back before placing this order.',
  LOOP_MUTATIONS_DISABLED:'Changes to this subscription are currently unavailable.',
  TEST_ONLY:'Changes to this subscription are currently unavailable.',
  ACTION_NOT_FOUND:'We could not find this update. Please contact support before submitting it again.',
@@ -110,6 +111,7 @@ function confirmAction(label,oneTimeProduct){
  if(action==='discount')field('value','Discount code','text',undefined,'');
  if(action==='order-note')field('value','Order note','textarea',undefined,(Object.prototype.hasOwnProperty.call(selectedSubscription,'orderNote')?selectedSubscription.orderNote:selectedSubscription.note)||'',false);
  const note=el('p','ftr-sub__muted',oneTimeProduct?'Add this product to your next order only. It will not be included in future orders.':actionDescriptions[action]||'Review your details before confirming this change.');
+ if(action==='skip'&&journeySnapshot?.status==='ACTIVE')note.append(' Skipping this order restarts your five-order journey and removes any unclaimed journey reward.');
  add(actions,cancel,review,confirm,check);add(form,status);add(panel,el('h2','',label),note,form,actions);add(backdrop,panel);add(document.body,backdrop);
  function keys(e){
   if(e.key==='Escape'){e.preventDefault();close();}
@@ -213,7 +215,53 @@ function orderView(subscriptionId,kind){
  details.addEventListener('toggle',()=>{if(details.open)load();});return details;
 }
 function identityPlaceholder(id){const n=el('div');n.id='ftr-subscription-list';return n;}
+function recommendationSlider(card,track){
+ const controls=el('div','ftr-sub__slider-controls'),previous=el('button','ftr-sub__btn','Previous'),next=el('button','ftr-sub__btn','Next'),status=el('span','ftr-sub__slider-status');
+ previous.type=next.type='button';previous.setAttribute('aria-label','Previous recommended products');next.setAttribute('aria-label','Next recommended products');
+ track.id=root.id+'-recommendations';previous.setAttribute('aria-controls',track.id);next.setAttribute('aria-controls',track.id);
+ status.setAttribute('role','status');status.setAttribute('aria-atomic','true');
+ controls.hidden=track.children.length<=3;add(controls,previous,status,next);add(card,controls);
+ let frame;
+ const update=()=>{const gap=parseFloat(getComputedStyle(track).columnGap)||0,step=(track.firstElementChild?.getBoundingClientRect().width||1)+gap,total=track.children.length,first=Math.max(0,Math.min(total-3,Math.round(track.scrollLeft/step)));previous.disabled=track.scrollLeft<=2;next.disabled=track.scrollLeft>=track.scrollWidth-track.clientWidth-2;status.textContent=`${first+1}–${Math.min(first+3,total)} of ${total}`;};
+ const scroll=direction=>{track.scrollBy({left:direction*(track.clientWidth+(parseFloat(getComputedStyle(track).columnGap)||0)),behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});};
+ previous.addEventListener('click',()=>scroll(-1));next.addEventListener('click',()=>scroll(1));track.addEventListener('scroll',update,{passive:true});window.addEventListener('resize',update);frame=requestAnimationFrame(update);
+ return()=>{window.removeEventListener('resize',update);track.removeEventListener('scroll',update);cancelAnimationFrame(frame);};
+}
+async function loadJourney(subscription,slot,requestId){
+ try{
+  const response=await fetch(endpoint.replace(/\/$/,'')+'/journey',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({subscriptionId:String(subscription.id)}),cache:'no-store'});
+  const result=await response.json();if(!slot.isConnected||requestId!==journeyRequest)return;
+  if(!response.ok||!result.ok)throw Error('unavailable');
+  const j=result.journey;if(!j?.enabled){slot.remove();return;}
+  if(!Number.isInteger(j.completedOrders)||j.completedOrders<0||j.completedOrders>5||j.totalOrders!==5||!['ACTIVE','COMPLETED'].includes(j.status))throw Error('invalid');
+  if((j.status==='COMPLETED')!==(j.completedOrders===5))throw Error('invalid');
+  const finished=j.status==='COMPLETED',nextReward=j.completedOrders<2?{order:2,percent:10}:{order:5,percent:20};
+  if(!finished&&(!j.nextReward||j.nextReward.order!==nextReward.order||j.nextReward.percent!==nextReward.percent))throw Error('invalid');
+  journeySnapshot=j;slot.className='ftr-sub__journey';slot.setAttribute('role','region');slot.setAttribute('aria-label','Subscriber journey');
+  const head=el('div','ftr-sub__journey-head'),label=el('p','ftr-sub__journey-eyebrow','Subscriber journey'),title=el('h2','',finished?'Your journey is complete':(j.completedOrders?'Level '+j.completedOrders+' of 5':'Your journey starts here')),badge=el('span','ftr-sub__journey-count',j.completedOrders+'/5');
+  label.prepend(icon('box'));add(head,label,title,badge);
+  add(head,el('p','',finished?'Thank you for completing your five-order journey.':(nextReward.order-j.completedOrders)+' '+(nextReward.order-j.completedOrders===1?'order':'orders')+' away from your next reward.'));
+  const progress=el('div','ftr-sub__journey-progress'),fill=el('span');fill.style.width=(j.completedOrders*20)+'%';add(progress,fill);progress.setAttribute('role','progressbar');progress.setAttribute('aria-label','Completed journey orders');progress.setAttribute('aria-valuemin','0');progress.setAttribute('aria-valuemax','5');progress.setAttribute('aria-valuenow',String(j.completedOrders));add(head,progress);
+  const content=el('div','ftr-sub__journey-body'),steps=el('ol','ftr-sub__journey-steps');
+  for(let i=1;i<=5;i++){
+   const done=i<=j.completedOrders,current=!finished&&i===j.completedOrders+1,step=el('li','ftr-sub__journey-step'+(done?' is-done':current?' is-current':'')),symbol=el('span','ftr-sub__journey-symbol');if(current)step.setAttribute('aria-current','step');add(symbol,icon(done?'check':'box'));add(step,symbol,el('strong','','Order '+i),el('span','ftr-sub__journey-step-status',done?'Done':current&&Number.isFinite(Number(j.nextBillingDateEpoch))&&Number(j.nextBillingDateEpoch)>0?new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',timeZone:'UTC'}).format(new Date(Number(j.nextBillingDateEpoch)*1000)):current?'Next':'Upcoming'));
+   if(i===2||i===5)add(step,el('span','ftr-sub__journey-perk','+'+(i===2?10:20)+'% off'));add(steps,step);
+  }
+  const notice=el('div','ftr-sub__journey-next');notice.prepend(icon('tag'));
+  if(finished)add(notice,el('p','','You have completed all five milestones. Your subscription continues with its usual benefits.'));
+  else{
+   add(notice,el('p','',j.nextReward.applied===true?'Your additional '+nextReward.percent+'% discount is confirmed for journey order '+nextReward.order+'.':'Next reward: an additional '+nextReward.percent+'% off journey order '+nextReward.order+'.'));
+   if(j.nextOrder===nextReward.order&&j.nextReward.applied!==true)add(notice,el('p','ftr-sub__muted','Your reward is awaiting confirmation. Please check back before placing this order.'));
+  }
+  add(content,steps,notice);
+  if(!finished){add(content,el('p','ftr-sub__journey-reset',j.resetCount>0?'Your progress restarted after a skipped order. Keep going to reach your next reward.':'Skipping an order restarts your progress. Completed journeys stay complete.'));
+   const cta=btn('Ship now & unlock perks',true,'Order now');cta.disabled=!mutationAccess||(j.nextOrder===nextReward.order&&j.nextReward.applied!==true);cta.append(icon('arrow'));add(content,cta);
+  }
+  slot.replaceChildren(head,content);
+ }catch{if(slot.isConnected&&requestId===journeyRequest){slot.className='ftr-sub__notice';slot.textContent='Your subscriber journey is temporarily unavailable. Your subscription details are still available below.';}}
+}
 function show(data,preferredId=selectedSubscription?.id){
+ recommendationCleanup?.();recommendationCleanup=null;journeyRequest++;journeySnapshot=null;
  const subscriptions=(Array.isArray(data.subscriptions)?data.subscriptions:[]).filter(s=>s&&s.id!=null).slice().sort((a,b)=>(String(b.status).toUpperCase()==='ACTIVE')-(String(a.status).toUpperCase()==='ACTIVE'));
  const s=subscriptions.find(item=>String(item.id)===String(preferredId))||subscriptions[0];
  main.replaceChildren();selectedSubscription=s||null;pending=null;
@@ -233,6 +281,7 @@ function show(data,preferredId=selectedSubscription?.id){
  add(chooser,choices);if(subscriptions.length>1)add(main,chooser);else add(main,identityPlaceholder(s.id));
  const identity=el('p','ftr-sub__subscription-id',`Subscription #${s.id}`);identity.setAttribute('data-testid','selected-subscription-id');
  const intro=el('header','ftr-sub__intro');add(intro,identity,el('h1','','Your subscription is '+String(s.status||'unknown').toLowerCase()),el('p','','Manage your products, schedule and delivery details.'));intro.querySelector('h1').append(icon(String(s.status).toUpperCase()==='ACTIVE'?'check':'pause'));add(main,intro);
+ if(String(s.status).toUpperCase()==='ACTIVE'){const slot=el('div','ftr-sub__journey-loading');slot.setAttribute('aria-live','polite');add(main,slot);loadJourney(s,slot,journeyRequest);}
  pending=pendingRead();if(pending){
   const warning=el('div','ftr-sub__notice'),checkPending=el('button','ftr-sub__btn','Check pending change');checkPending.type='button';
   checkPending.addEventListener('click',()=>confirmAction(Object.entries(actionMap).find(([,action])=>action===pending.action)?.[0]||'Previous change'));
@@ -260,12 +309,14 @@ function show(data,preferredId=selectedSubscription?.id){
  }
  add(sub,el('p','ftr-sub__muted',deliveryFrequency(freq)),btn('Edit subscription'));
  const note=Object.prototype.hasOwnProperty.call(s,'orderNote')?s.orderNote:s.note;
- const discounts=(s.discounts||[]).map(d=>d?.node||d).filter(d=>d&&d.isActive!==false&&!d.rejectionReason).map(d=>pick(d,'title','code','discountCode')||'Subscription discount').join(', ');
+ const discounts=(s.discounts||[]).map(d=>d?.node||d).filter(d=>d&&d.isActive!==false&&!d.rejectionReason).map(d=>{const title=pick(d,'title','code','discountCode')||'Subscription discount',journey=/^FTR Journey \+(10|20)% [a-f0-9]{16}$/.exec(title);return journey?'Journey reward: additional '+journey[1]+'%':title;}).join(', ');
  add(sub,detailRow('Order notes',note||'Add your note.','Order notes','note','subscription-note'),detailRow('Discount code',discounts||'No active discounts.','Discount code','tag','subscription-discounts'),detailRow('Subscription plan',deliveryFrequency(freq),'Change frequency','calendar'));
  const orders=el('div','ftr-sub__orders');orders.id='ftr-orders';add(orders,orderView(s.id,'schedule'),orderView(s.id,'history'),link('View all orders in account',accountUrl));add(sub,orders);
  const side=el('div','ftr-sub__stack'),shipping=card('Shipping address','ftr-address');
  const fullName=[address.firstName,address.lastName].filter(Boolean).join(' '),city=[address.city,address.province||address.provinceCode,address.zip].filter(Boolean).join(', ');
- add(shipping,el('p','ftr-sub__address',[fullName,address.company,address.address1,address.address2,city,address.country||address.countryCode].filter(Boolean).join('\n')||'No shipping address available.'),btn('Edit address'));
+ const addressText=[address.company,address.address1,address.address2,city,address.country||address.countryCode].filter(Boolean).join(', '),addressBlock=el('p','ftr-sub__address');
+ if(fullName)add(addressBlock,el('strong','ftr-sub__address-name',fullName));
+ const addressLine=el('span','ftr-sub__address-line',addressText||'No shipping address available.');addressLine.tabIndex=0;add(addressBlock,addressLine);add(shipping,addressBlock,btn('Edit address'));
  const payment=card('Payment details','ftr-payment');payment.classList.add('ftr-sub__payment');add(payment,el('p','ftr-sub__muted','Manage saved payment methods securely in your account portal.'),paymentAccountLink(accountUrl));
  add(payment,link('Add a backup payment method',accountUrl));add(side,payment,shipping);add(columns,sub,side);add(main,columns);
 
@@ -275,7 +326,7 @@ function show(data,preferredId=selectedSubscription?.id){
   for(const product of recommended.querySelectorAll('[data-variant-ids]')){try{if(JSON.parse(product.dataset.variantIds).some(id=>existing.has(String(id))))product.remove();}catch{product.remove();}}
   for(const tile of [...recommended.children].slice(5))tile.remove();
   for(const product of recommended.querySelectorAll('[data-add-once]')){const tile=product.closest('[data-variants]');let variants=[];try{variants=JSON.parse(tile.dataset.variants).filter(v=>/^\d+$/.test(String(v.id)));}catch{}if(!variants.length){product.disabled=true;continue;}const title=tile.querySelector('h3')?.textContent||'Product';product.setAttribute('aria-label','Add '+title+' once');product.disabled=!mutationAccess;product.addEventListener('click',()=>confirmAction('Add one-time product',{variants}));}
-  if(recommended.children.length){const rec=card('Complete your routine'),products=el('div','ftr-sub__recommend');add(products,recommended);add(rec,el('p','ftr-sub__muted','Add something extra to your next order, with no ongoing commitment.'),link('See more products',root.dataset.shopUrl||'/collections/all'),products);add(main,rec);}
+  if(recommended.children.length){const rec=card('Complete your routine'),products=el('div','ftr-sub__recommend');add(products,recommended);add(rec,el('p','ftr-sub__muted','Add something extra to your next order, with no ongoing commitment.'),link('See more products',root.dataset.shopUrl||'/collections/all'),products);add(main,rec);recommendationCleanup=recommendationSlider(rec,products);}
  }
  const manage=card('Manage your subscription');add(manage,el('p','ftr-sub__muted','Update your products, schedule or subscription preferences.'));const mg=el('div','ftr-sub__manage');
  for(const [symbol,label,description]of [['edit','Edit products','Change what you receive'],['refresh','Change frequency','Choose how often'],['calendar','Change next order','Pick another date'],['cancel','Skip next order','Skip without cancelling'],['pause','Pause subscription','Take a temporary break'],['cancel','Cancel subscription','End your subscription']]){

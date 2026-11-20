@@ -1,9 +1,10 @@
 import {Router} from 'express';
+import {subscriberJourneyService} from '../services/subscriber-journey.service.js';
 import {subscriptionProxyAuth} from '../middleware/subscriptionProxyAuth.js';
 import {loopActionService} from '../services/loop-action-executor.service.js';
 import {loopCustomerReadService} from '../services/loop-customer-read.service.js';
 
-const messages={GIFT_API_UNAVAILABLE:'Gift is currently unavailable in this dashboard.',TEST_ONLY:'Only the configured test customer and subscription can use these actions.',LOOP_MUTATIONS_DISABLED:'Subscription changes are disabled.',SUBSCRIPTION_ACTION_PENDING:'A previous change is pending verification. Check its status before making another change.',STALE_PREVIEW:'Your subscription changed. Reload and validate again.',PREVIEW_EXPIRED:'Your preview expired. Validate the details again.',ACTION_NOT_FOUND:'No request was found with that key.',INVALID_PREVIEW:'Validate the action again before confirming.',SUBSCRIPTION_NOT_ACTIVE:'This subscription is not active.',LINE_NOT_OWNED:'The selected product does not belong to this subscription.',BUNDLE_REQUIRES_LOOP_EDITOR:'Edit this bundle in the Loop customer portal.'};
+const messages={JOURNEY_REWARD_PENDING:'Your journey reward is awaiting confirmation. Please check back before placing this order.',GIFT_API_UNAVAILABLE:'Gift is currently unavailable in this dashboard.',TEST_ONLY:'Only the configured test customer and subscription can use these actions.',LOOP_MUTATIONS_DISABLED:'Subscription changes are disabled.',SUBSCRIPTION_ACTION_PENDING:'A previous change is pending verification. Check its status before making another change.',STALE_PREVIEW:'Your subscription changed. Reload and validate again.',PREVIEW_EXPIRED:'Your preview expired. Validate the details again.',ACTION_NOT_FOUND:'No request was found with that key.',INVALID_PREVIEW:'Validate the action again before confirming.',SUBSCRIPTION_NOT_ACTIVE:'This subscription is not active.',LINE_NOT_OWNED:'The selected product does not belong to this subscription.',BUNDLE_REQUIRES_LOOP_EDITOR:'Edit this bundle in the Loop customer portal.'};
 export function subscriptionActionFailure(res,error) {
   const status=Number.isInteger(error.statusCode)&&error.statusCode>=400&&error.statusCode<=599?error.statusCode:503;
   const code=/^[A-Z][A-Z0-9_]+$/.test(error.code||'')?error.code:'SUBSCRIPTION_SERVICE_UNAVAILABLE';
@@ -17,6 +18,7 @@ export function createSubscriptionActionRouter({service=loopActionService,readSe
     try{res.json(await readService.orders(req.subscriptionIdentity,req.body));}
     catch(error){subscriptionActionFailure(res,error);}
   });
+  router.post('/journey',async(req,res)=>{try{res.json(await subscriberJourneyService.view(req.subscriptionIdentity,req.body));}catch(error){subscriptionActionFailure(res,error);}});
   for(const [path,method] of [['action-preview','preview'],['action-execute','execute'],['action-status','status'],['action-catalog','catalog'],['reschedule','execute']]) {
     router.post('/'+path,async(req,res)=>{
       try {

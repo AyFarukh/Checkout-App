@@ -1,0 +1,9 @@
+# Subscriber journey implementation
+
+Approved: existing paid subscription orders carry over; an additional 10% on journey order 2 and additional 20% on journey order 5; no gifts; customer skips restart an ongoing journey, completed journeys never restart. No retroactive credits. Only ACTIVE subscriptions show/enroll/receive rewards. One subscription is one journey, not customer-wide order totals.
+
+Implementation: server-authorized read endpoint, durable Mongo enrollment + signed Loop skip receipts, reconciliation worker, shared subscription operation lock/idempotency ledger, one-cycle contract-bound manual discounts with strict read-back verification, responsive five-milestone card reusing existing Order now confirmation. Read requests never grant a discount. Writes default off behind separate journey and existing Loop mutation gates. Existing program-completed state remains terminal.
+
+Safety: no frontend counters/tokens/reward writes; incomplete order history or timestamp-less skip evidence fails closed. Existing discounts are preserved. Only program-managed discounts are removed. Ambiguous provider writes retain their durable lock and are read-reconciled, never blindly retried. Raw-body HMAC and signed payload validation for Loop callbacks; deduplicate by signed order identity, not unsigned delivery headers. Runtime activation requires verified manual-discount support, one recurring-cycle limits and combination settings, signed skip webhook, API scopes and a controlled live test. No production activation/deployment/merges in this task.
+
+Validation: rule unit tests, real HTTP Loop fixture + disposable Mongo integration (auth, history, reset, discount lifecycle, duplicate/concurrent/ambiguous requests, kill switches), desktop/mobile browser UI tests and existing subscription regressions. Live credentials absent in this workspace: document exact remaining live acceptance steps without claiming live success.

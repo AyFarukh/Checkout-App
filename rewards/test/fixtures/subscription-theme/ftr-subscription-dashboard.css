@@ -104,3 +104,73 @@
 }
 .ftr-sub .ftr-sub__main .ftr-sub__manage .ftr-sub__danger strong,.ftr-sub .ftr-sub__main .ftr-sub__manage .ftr-sub__danger>.ftr-sub__manage-icon{color:#d92f26}.ftr-sub .ftr-sub__main .ftr-sub__error{color:#aa2525}
 @media(max-width:700px){.ftr-sub .ftr-sub__next-grid{grid-template-columns:minmax(0,1.55fr) minmax(0,1fr)}.ftr-sub .ftr-sub__next-date{font-size:14.5px}}
+
+/* Keep the recipient separate from the complete, horizontally readable address. */
+.ftr-sub .ftr-sub__address{min-width:0;max-width:100%;white-space:normal}
+.ftr-sub .ftr-sub__address-name{display:block;font-weight:700}
+.ftr-sub .ftr-sub__address-line{display:block;max-width:100%;white-space:nowrap;overflow-x:auto}
+.ftr-sub .ftr-sub__slider-controls{display:none}
+@media(max-width:700px){
+ .ftr-sub .ftr-sub__recommend{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:calc((100% - 20px)/3);gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;overscroll-behavior-x:contain;scrollbar-width:none}
+ .ftr-sub .ftr-sub__recommend::-webkit-scrollbar{display:none}
+ .ftr-sub .ftr-sub__rec{scroll-snap-align:start;padding-right:0;border:0}
+ .ftr-sub .ftr-sub__rec img{height:90px}
+ .ftr-sub .ftr-sub__main .ftr-sub__rec h3{font-size:11px;line-height:1.45}
+ .ftr-sub .ftr-sub__rec>p{font-size:11px}
+ .ftr-sub .ftr-sub__rec>.ftr-sub__btn{min-height:40px;font-size:11px}
+ .ftr-sub .ftr-sub__slider-controls{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:12px}
+ .ftr-sub .ftr-sub__slider-controls[hidden]{display:none}
+ .ftr-sub .ftr-sub__slider-controls .ftr-sub__btn{min-height:44px;padding:8px 12px}
+ .ftr-sub .ftr-sub__slider-status{font-size:11px;white-space:nowrap}
+ .ftr-sub .ftr-sub__manage{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+ .ftr-sub .ftr-sub__manage button{border:1px solid var(--ftr-border);border-radius:8px;min-height:120px;padding:12px 5px}
+ .ftr-sub .ftr-sub__manage strong{font-size:11px;line-height:1.4}
+ .ftr-sub .ftr-sub__manage small{font-size:10px;line-height:1.45}
+ .ftr-sub .ftr-sub__manage-icon .ftr-sub__icon{width:24px;height:24px}
+}
+.ftr-sub .ftr-sub__columns>*{min-width:0}
+
+/* Subscriber journey: five real milestones, independent of the store header/footer. */
+.ftr-sub .ftr-sub__journey{overflow:hidden;border:1px solid #d8e5df;border-radius:16px;background:#fff;color:#173a30;margin-bottom:20px}
+.ftr-sub .ftr-sub__journey-loading:empty{display:none}
+.ftr-sub .ftr-sub__journey-head{position:relative;padding:26px 28px;background:linear-gradient(115deg,#104b3b,#087160);color:#fff}
+.ftr-sub .ftr-sub__journey-head .ftr-sub__journey-eyebrow{display:flex;align-items:center;gap:9px;text-transform:uppercase;letter-spacing:.17em;font-size:12px;font-weight:600;opacity:.8;margin:0 65px 10px 0}
+.ftr-sub .ftr-sub__journey-head h2{font:inherit;font-size:26px;line-height:1.2;font-weight:700;color:#fff;margin:0 65px 7px 0}
+.ftr-sub .ftr-sub__journey-head>p:not(.ftr-sub__journey-eyebrow){color:#e8f2ed;font-size:15px;margin:0}
+.ftr-sub .ftr-sub__journey-count{position:absolute;right:28px;top:26px;background:#ffffff21;border-radius:30px;padding:7px 14px;font-weight:700;font-size:14px}
+.ftr-sub .ftr-sub__journey-progress{height:8px;background:#ffffff38;border-radius:20px;margin-top:20px;overflow:hidden}
+.ftr-sub .ftr-sub__journey-progress>span{display:block;height:100%;border-radius:inherit;background:#d8b35a}
+.ftr-sub .ftr-sub__journey-body{padding:26px 28px}
+.ftr-sub .ftr-sub__journey-steps{position:relative;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));list-style:none;padding:0;margin:0 0 24px;gap:6px}
+.ftr-sub .ftr-sub__journey-steps:before{content:'';position:absolute;height:3px;top:29px;left:10%;right:10%;background:#dceae3}
+.ftr-sub .ftr-sub__journey-step{position:relative;min-width:0;text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:13px}
+.ftr-sub .ftr-sub__journey-symbol{position:relative;display:grid;place-items:center;width:60px;height:60px;border:2px solid #dce7e1;border-radius:50%;background:#fff;color:#99b3a8;margin-bottom:7px}
+.ftr-sub .ftr-sub__journey-symbol .ftr-sub__icon{height:27px;width:27px}
+.ftr-sub .ftr-sub__journey-step.is-done .ftr-sub__journey-symbol{background:#c6a349;border-color:#c6a349;color:white}
+.ftr-sub .ftr-sub__journey-step.is-current .ftr-sub__journey-symbol{background:#104b3b;border-color:#104b3b;color:white;box-shadow:0 0 0 8px #104b3b14}
+.ftr-sub .ftr-sub__journey-step-status{color:#697c74;font-size:12px}
+.ftr-sub .ftr-sub__journey-perk{background:#e9f2ed;border-radius:20px;padding:3px 8px;font-size:11px;font-weight:700;white-space:nowrap}
+.ftr-sub .ftr-sub__journey-step:last-child .ftr-sub__journey-perk{background:#faf4e8;color:#8c6925}
+.ftr-sub .ftr-sub__journey-next{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;background:#e9f3ed;border-radius:12px;padding:16px;font-size:14px;line-height:1.5}
+.ftr-sub .ftr-sub__journey-next>.ftr-sub__icon{flex:none;width:25px;height:25px;margin-top:2px}
+.ftr-sub .ftr-sub__journey-next p{margin:0;flex:1 1 75%}
+.ftr-sub .ftr-sub__journey-reset{font-size:12px;line-height:1.6;color:#63726c;margin:14px 0}
+.ftr-sub .ftr-sub__journey-body>.ftr-sub__btn{width:100%;min-height:48px;display:flex;align-items:center;justify-content:center;gap:12px}
+@media(max-width:700px){
+ .ftr-sub .ftr-sub__journey-head,.ftr-sub .ftr-sub__journey-body{padding:20px 14px}
+ .ftr-sub .ftr-sub__journey-head h2{font-size:23px}
+ .ftr-sub .ftr-sub__journey-head .ftr-sub__journey-eyebrow{font-size:10px;letter-spacing:.12em}
+ .ftr-sub .ftr-sub__journey-head>p:not(.ftr-sub__journey-eyebrow){font-size:12px;line-height:1.5}
+ .ftr-sub .ftr-sub__journey-count{right:14px;top:20px;padding:6px 11px}
+ .ftr-sub .ftr-sub__journey-symbol{width:40px;height:40px}
+ .ftr-sub .ftr-sub__journey-symbol .ftr-sub__icon{height:22px;width:22px}
+ .ftr-sub .ftr-sub__journey-steps{gap:3px}
+ .ftr-sub .ftr-sub__journey-steps:before{top:19px}
+ .ftr-sub .ftr-sub__journey-step{font-size:11px;gap:5px}
+ .ftr-sub .ftr-sub__journey-step-status{font-size:10px}
+ .ftr-sub .ftr-sub__journey-perk{font-size:9px;padding:3px 5px}
+ .ftr-sub .ftr-sub__journey-next{padding:12px;font-size:12px;gap:8px}
+}
+
+.ftr-sub .ftr-sub__journey-head .ftr-sub__journey-eyebrow{color:#e8f3ed}
+.ftr-sub .ftr-sub__journey-body>.ftr-sub__btn{font-size:15px;font-weight:600}

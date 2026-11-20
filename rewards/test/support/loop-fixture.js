@@ -5,7 +5,7 @@ export function baseSubscription() {
 }
 export const actionCases=[['skip',{}],['reschedule',{date:new Date(Date.now()+20*86400000).toISOString().slice(0,10)}],['delay',{days:7}],['order-now',{preponeFutureOrder:true}],['frequency',{interval:'WEEK',intervalCount:2}],['pause',{confirmPause:true}],['cancel',{confirmCancellation:true}],['edit-products',{lineId:'7',quantity:2}],['edit-address',{...baseSubscription().shippingAddress,address1:'2 Test Road'}],['discount',{value:'TEST10'}],['order-note',{value:'Leave at the door'}]];
 export async function startLoopFixture() {
- const fixture={reset(){this.subscription=baseSubscription();this.writes=[];this.history=[];this.schedule=[{id:1,status:'UNPROCESSED',billingDate:new Date(this.subscription.nextBillingDateEpoch*1000).toISOString()}];this.owned=true;this.noStateChange=false;this.businessFailure=false;this.ambiguousFailure=false;this.writeDelay=0;this.omitSkipped=false;}};
+ const fixture={reset(){this.subscription=baseSubscription();this.writes=[];this.history=[];this.schedule=[{id:1,status:'UNPROCESSED',billingDate:new Date(this.subscription.nextBillingDateEpoch*1000).toISOString()}];this.journeyDiscounts=false;this.historyTruncated=false;this.journeyWrongLimit=false;this.journeyNoPriceChange=false;this.owned=true;this.noStateChange=false;this.businessFailure=false;this.ambiguousFailure=false;this.writeDelay=0;this.omitSkipped=false;}};
  fixture.reset();
  const server=http.createServer(async(req,res)=>{
   if(req.headers['x-loop-token']!=='fixture-only'){res.writeHead(401);return res.end('{"success":false}');}
@@ -25,7 +25,7 @@ export async function startLoopFixture() {
     const s=fixture.subscription;
     if(path.endsWith('/skipNext')){s.nextBillingDateEpoch+=30*86400;fixture.schedule[0].status='SKIPPED';}
     else if(path.endsWith('/reschedule'))s.nextBillingDateEpoch=b.newBillingDateEpoch;
-    else if(path.endsWith('/placeOrder'))fixture.history.push({id:99,shopifyId:100,status:'PROCESSED',financialStatus:'paid'});
+    else if(path.endsWith('/placeOrder')){fixture.history.push({id:99,shopifyId:100,status:'PROCESSED',financialStatus:'paid',shopifyProcessedAt:new Date().toISOString()});if(fixture.journeyDiscounts){for(const d of s.discounts){if(d.isActive){d.isActive=false;d.usageCount=1;}}s.totalLineItemDiscountedPrice=100;}}
     else if(path.endsWith('/frequency')){s.billingPolicy=b.billingPolicy;s.deliveryPolicy=b.deliveryPolicy;}
     else if(path.endsWith('/pause'))s.status='PAUSED';
     else if(path.endsWith('/cancel'))s.status='CANCELLED';
@@ -35,13 +35,14 @@ export async function startLoopFixture() {
     else if(path.endsWith('/line/once')&&req.method==='POST')s.lineItems.push({id:8,variantShopifyId:b.variantShopifyId,quantity:b.quantity,isOneTimeAdded:true});
     else if(path.endsWith('/line')&&req.method==='POST')s.lineItems.push({id:8,variantShopifyId:b.variantShopifyId,quantity:b.quantity});
     else if(path.endsWith('/address'))s.shippingAddress=b;
-    else if(path.endsWith('/discount'))s.discounts.push({node:{code:b.discountCode}});
+    else if(req.method==='DELETE'&&path.includes('/discount/')){const removed=s.discounts.find(d=>String(d.shopifyId)===decodeURIComponent(path.split('/').pop()));s.discounts=s.discounts.filter(d=>d!==removed);if(removed?.isActive&&fixture.journeyDiscounts)s.totalLineItemDiscountedPrice=Math.round(s.totalLineItemDiscountedPrice/(1-removed.value/100)*100)/100;}
+    else if(path.endsWith('/discount')){if(fixture.journeyDiscounts){const percent=b.manualDiscount?.value??(b.discountCode==='FTR_JOURNEY_20'?20:10);s.discounts.push({shopifyId:String(900+s.discounts.length),title:b.manualDiscount?.title||b.discountCode,type:'PERCENTAGE',value:percent,orderLimit:fixture.journeyWrongLimit?null:1,usageCount:0,isActive:true});if(!fixture.journeyNoPriceChange)s.totalLineItemDiscountedPrice=Math.round(s.totalLineItemDiscountedPrice*(1-percent/100)*100)/100;}else s.discounts.push({node:{code:b.discountCode}});}
     else if(path.endsWith('/note')){if(Object.hasOwn(s,'orderNote'))s.orderNote=b.note;else s.note=b.note;}
     else {res.writeHead(404);return res.end('{"success":false}');}
    }
    if(fixture.ambiguousFailure){res.writeHead(500);return res.end('{"success":false}');}
   }
-  res.setHeader('Content-Type','application/json');res.end(JSON.stringify({success:req.method==='GET'||!fixture.businessFailure,data:data??null}));
+  res.setHeader('Content-Type','application/json');res.end(JSON.stringify({success:req.method==='GET'||!fixture.businessFailure,data:data??null,...(path.endsWith('/order/history')&&fixture.historyTruncated?{pageInfo:{hasNextPage:true}}:{})}));
  });
  await new Promise(r=>server.listen(0,'127.0.0.1',r));fixture.url=`http://127.0.0.1:${server.address().port}/admin/2026-04`;
  fixture.close=()=>new Promise(r=>server.close(r));return fixture;

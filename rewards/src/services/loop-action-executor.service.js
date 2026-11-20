@@ -1,3 +1,4 @@
+import {subscriberJourneyService} from './subscriber-journey.service.js';
 import {subscriptionActionScope as scope} from './loop-action-access.service.js';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { ShopifyOfflineToken } from '../models/ShopifyOfflineToken.js';
@@ -89,6 +90,8 @@ export function createLoopActionService({installationExists=shop=>ShopifyOffline
   async function preview(identity,body) {
     const bound=request(identity,body);await authorized(bound);
     await validateVariant(identity,bound);
+    if(bound.action==='skip')await subscriberJourneyService.view(identity,{subscriptionId:bound.subscriptionId});
+    if(bound.action==='order-now')await subscriberJourneyService.assertOrderReady(identity,bound.subscriptionId);
     const state=await read(bound,bound.action),plan=prepareAction(bound.action,bound.subscriptionId,bound.payload,state.subscription);
     if(bound.action==='skip')nextScheduledOrder(state.subscription,state.schedule);
     const expiresAt=Date.now()+300000;
@@ -131,6 +134,7 @@ export function createLoopActionService({installationExists=shop=>ShopifyOffline
     // Recheck after acquiring the durable subscription lock: a parallel operation
     // might have completed between the first read and the reservation.
     try {
+      if(bound.action==='order-now')await subscriberJourneyService.assertOrderReady(identity,bound.subscriptionId);
       const fresh=await read(bound,bound.action);
       if(previewStateHash(fresh)!==token.state) {
         await finishLoopAction(attempt._id,'rejected','STALE_PREVIEW');
@@ -157,6 +161,7 @@ export function createLoopActionService({installationExists=shop=>ShopifyOffline
       if(i) await sleep(verificationDelayMs*i);
       try {
         if(verifyAction(bound.action,bound.payload,state.subscription,await read(bound,bound.action),plan)) {
+          if(bound.action==='skip')await subscriberJourneyService.recordVerifiedSkip(identity,bound.subscriptionId,plan.scheduleId);
           const final=await finishLoopAction(attempt._id,'applied');
           return storedResult(final||attempt);
         }
@@ -185,6 +190,7 @@ export function createLoopActionService({installationExists=shop=>ShopifyOffline
         return storedResult(final||attempt,true);
       }
       if(verifyAction(attempt.action,attempt.payload,attempt.context.before,state,attempt.context.plan)) {
+        if(attempt.action==='skip')await subscriberJourneyService.recordVerifiedSkip(identity,bound.subscriptionId,attempt.context.plan.scheduleId);
         const final=await finishLoopAction(attempt._id,'applied');return storedResult(final||attempt,true);
       }
     }
