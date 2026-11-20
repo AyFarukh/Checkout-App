@@ -1,4 +1,6 @@
 import "dotenv/config";
+import {createJourneyWebhookRouter} from './routes/subscriberJourneyWebhook.js';
+import {subscriberJourneyService} from './services/subscriber-journey.service.js';
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,6 +32,8 @@ let workersRunning = false;
 app.disable("x-powered-by");
 
 app.use(requestId);
+
+app.use('/webhooks/loop-journey',express.raw({type:'application/json',limit:'256kb'}),requireDatabase,createJourneyWebhookRouter());
 
 // Shopify webhooks
 app.use(
@@ -145,6 +149,7 @@ setInterval(async () => {
 
   try {
     await processWebhookJobs();
+    await subscriberJourneyService.processBatch();
     await processReferralMaintenance();
     await processRewardSyncJobs();
     await releaseExpiredRedemptions();
