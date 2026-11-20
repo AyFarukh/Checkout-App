@@ -13,8 +13,10 @@ const epoch=x=>x==null?NaN:new Date(x).getTime();
 export function journeyConfig(env=process.env){
  const enabled=env.LOOP_JOURNEY_ENABLED==='true';
  const program=env.LOOP_JOURNEY_PROGRAM||'ftr-first-five-v1';
- return {enabled,program,automation:enabled&&env.LOOP_JOURNEY_AUTOMATION_ENABLED==='true'&&env.LOOP_JOURNEY_MANUAL_DISCOUNTS_VERIFIED==='true'&&env.LOOP_JOURNEY_WEBHOOK_VERIFIED==='true'&&(env.LOOP_JOURNEY_WEBHOOK_SECRETS||'').split(',').some(k=>k.length>=16)};
+ const rollout=(env.LOOP_JOURNEY_ALLOWED_SUBSCRIPTION_IDS??'42347174').trim(),all=rollout==='all',allowedIds=all?[]:rollout.split(',').map(s=>s.trim()).filter(id);
+ return {enabled,program,all,allowedIds,automation:enabled&&env.LOOP_JOURNEY_AUTOMATION_ENABLED==='true'&&env.LOOP_JOURNEY_MANUAL_DISCOUNTS_VERIFIED==='true'&&env.LOOP_JOURNEY_WEBHOOK_VERIFIED==='true'&&(env.LOOP_JOURNEY_WEBHOOK_SECRETS||'').split(',').some(k=>k.length>=16)};
 }
+export const journeySubscriptionAllowed=subscriptionId=>{const config=journeyConfig();return config.all||config.allowedIds.includes(String(subscriptionId));};
 export function paidOrders(rows){
  if(!Array.isArray(rows))throw error('JOURNEY_HISTORY_INCOMPLETE');
  const found=new Map();
@@ -79,7 +81,7 @@ export function createSubscriberJourneyService({installationExists=shop=>Shopify
  }
  async function view(identity,body){
   const config=journeyConfig();if(!config.enabled)return {ok:true,journey:{enabled:false}};
-  const subscriptionId=String(body?.subscriptionId||''),s=await authorized(identity,subscriptionId);
+  const subscriptionId=String(body?.subscriptionId||'');if(!journeySubscriptionAllowed(subscriptionId))return {ok:true,journey:{enabled:false}};const s=await authorized(identity,subscriptionId);
   if(s.status!=='ACTIVE')return {ok:true,journey:{enabled:false}};
   const row=await enrollment(identity,subscriptionId,s),p=await state(row);
   // Display never dispatches or reserves a provider write.
@@ -88,6 +90,7 @@ export function createSubscriberJourneyService({installationExists=shop=>Shopify
   return {ok:true,journey:publicState(s,p,config,verified,code)};
  }
  async function enroll(identity,subscriptionId,{apply=false}={}){
+  if(!journeySubscriptionAllowed(subscriptionId))return {subscriptionId,eligible:false,reason:'JOURNEY_NOT_IN_ROLLOUT'};
   const s=await authorized(identity,subscriptionId);if(s.status!=='ACTIVE')return {subscriptionId,eligible:false};
   const row=await enrollment(identity,subscriptionId,s,{persist:apply}),p=await state(row);
   return {subscriptionId,eligible:true,persisted:apply,completed:p.completed,finished:p.finished,nextRewardPercent:p.rewardPercent};
@@ -112,7 +115,7 @@ export function createSubscriberJourneyService({installationExists=shop=>Shopify
   if(!reservation.accepted)throw error(reservation.code);
   const attempt=await claimLoopAction(reservation.attempt._id);if(!attempt)throw error('ACTION_CLAIM_FAILED');
   // Re-authorize within the shared subscription write lock and compare eligibility again.
-  let fresh;try{fresh=await authorized(identity,row.subscriptionId);const current=await state(row);if(fresh.status!=='ACTIVE'||current.cycle!==p.cycle||current.completed!==p.completed||!journeyConfig().automation||!loopMutationsEnabled())throw error('JOURNEY_STATE_CHANGED');
+  let fresh;try{fresh=await authorized(identity,row.subscriptionId);const current=await state(row);if(fresh.status!=='ACTIVE'||current.cycle!==p.cycle||current.completed!==p.completed||!journeyConfig().automation||!loopMutationsEnabled()||!journeySubscriptionAllowed(row.subscriptionId))throw error('JOURNEY_STATE_CHANGED');
    if(JSON.stringify(discountRows(fresh))!==JSON.stringify(discountRows(s))||subtotal(fresh)!==subtotal(s))throw error('JOURNEY_STATE_CHANGED');
   }catch(e){await finishLoopAction(attempt._id,'rejected',e.code||'JOURNEY_STATE_CHANGED');throw e;}
   const target=discountRows(fresh).find(d=>discountCode(d)===code.toUpperCase());
@@ -125,7 +128,7 @@ export function createSubscriberJourneyService({installationExists=shop=>Shopify
  }
  async function managedTitles(row){const attempts=await LoopActionAttempt.find({shop:row.shop,subscriptionId:row.subscriptionId,action:'journey-add','context.program':row.program,status:'applied'}).select('+payload');return [...new Set(attempts.map(a=>a.payload.code))];}
  async function reconcile(row){
-  const config=journeyConfig();if(!config.automation||!loopMutationsEnabled())return {disabled:true};
+  const config=journeyConfig();if(!config.automation||!loopMutationsEnabled()||!journeySubscriptionAllowed(row.subscriptionId))return {disabled:true};
   const leaseToken=randomUUID(),locked=await SubscriberJourney.findOneAndUpdate({_id:row._id,$or:[{leaseUntil:{$lt:now()}},{leaseUntil:{$exists:false}}]},{$set:{leaseToken,leaseUntil:new Date(now().getTime()+120000)}},{new:true});
   if(!locked)return {busy:true};
   try{
@@ -157,7 +160,7 @@ export function createSubscriberJourneyService({installationExists=shop=>Shopify
   finally{await SubscriberJourney.updateOne({_id:row._id,leaseToken},{$set:{checkedAt:now()},$unset:{leaseToken:1,leaseUntil:1}});}
  }
  async function recordVerifiedSkip(identity,subscriptionId,orderId){
-  if(!journeyConfig().enabled)return;
+  if(!journeyConfig().enabled||!journeySubscriptionAllowed(subscriptionId))return;
   await view(identity,{subscriptionId});
   if(!id(String(orderId)))throw error('JOURNEY_SKIP_REVIEW_REQUIRED');
   await JourneySkip.init();await JourneySkip.updateOne({shop:identity.shop,key:'skip:'+orderId},{$setOnInsert:{subscriptionId,key:'skip:'+orderId,occurredAt:now()}},{upsert:true});
@@ -174,8 +177,9 @@ export function createSubscriberJourneyService({installationExists=shop=>Shopify
    if(!verified||!discountRows(s).some(d=>rewardMatches(d,wanted,p.rewardPercent)))throw error('JOURNEY_REWARD_PENDING',409);
   }
  }
- async function processBatch(){if(!journeyConfig().automation||!loopMutationsEnabled())return {disabled:true,processed:0,failed:0};const rows=await SubscriberJourney.find({program:journeyConfig().program}).sort({checkedAt:1,_id:1}).limit(20);const results=[];for(const row of rows){try{results.push({subscriptionId:row.subscriptionId,...await reconcile(row)});}catch(e){results.push({subscriptionId:row.subscriptionId,ok:false,code:/^[A-Z_]+$/.test(e.code||'')?e.code:'JOURNEY_UNAVAILABLE'});}}return {processed:rows.length,failed:results.filter(r=>r.ok===false).length,results};}
+ async function processBatch(){if(!journeyConfig().automation||!loopMutationsEnabled())return {disabled:true,processed:0,failed:0};const config=journeyConfig();const rows=await SubscriberJourney.find({program:config.program,...(config.all?{}:{subscriptionId:{$in:config.allowedIds}})}).sort({checkedAt:1,_id:1}).limit(20);const results=[];for(const row of rows){try{results.push({subscriptionId:row.subscriptionId,...await reconcile(row)});}catch(e){results.push({subscriptionId:row.subscriptionId,ok:false,code:/^[A-Z_]+$/.test(e.code||'')?e.code:'JOURNEY_UNAVAILABLE'});}}return {processed:rows.length,failed:results.filter(r=>r.ok===false).length,results};}
  async function enrollFromEvent(shop,subscriptionId,expectedOrderId){
+  if(!journeySubscriptionAllowed(subscriptionId))return;
   const s=(await provider(`subscription/${subscriptionId}`)).data;
   if(!s||String(s.id)!==subscriptionId||!id(String(s.customer?.shopifyId)))throw error('JOURNEY_EVENT_REVIEW_REQUIRED');
   if(s.status!=='ACTIVE')return;

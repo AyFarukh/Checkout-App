@@ -1,6 +1,6 @@
 import {Router} from 'express';
 import {JourneySkip,SubscriberJourney} from '../models/SubscriberJourney.js';
-import {verifyJourneySignature,journeyConfig,subscriberJourneyService} from '../services/subscriber-journey.service.js';
+import {verifyJourneySignature,journeyConfig,subscriberJourneyService,journeySubscriptionAllowed} from '../services/subscriber-journey.service.js';
 // Mounted with express.raw BEFORE the application's JSON parser.
 export function createJourneyWebhookRouter(service=subscriberJourneyService){const router=Router();router.post('/',async(req,res)=>{
  res.set('Cache-Control','no-store');
@@ -16,6 +16,7 @@ export function createJourneyWebhookRouter(service=subscriberJourneyService){con
   if(body.metaData?.entity!=='order'||p?.status!=='SKIPPED')return res.sendStatus(202);
   const subscriptionId=String(p.subscriptionId||''),orderId=String(p.id||'');
   if(!/^[1-9]\d*$/.test(subscriptionId)||!/^[1-9]\d*$/.test(orderId))return res.sendStatus(422);
+  if(!journeySubscriptionAllowed(subscriptionId))return res.sendStatus(202);
   const occurredAt=new Date(p.skippedAt||p.updatedAt||''),valid=Number.isFinite(occurredAt.getTime())&&occurredAt.getTime()<=Date.now()+60000;
   await JourneySkip.init();
   try{await JourneySkip.create({shop,subscriptionId,key:'skip:'+orderId,...(valid?{occurredAt}:{issue:'JOURNEY_SKIP_REVIEW_REQUIRED'})});}catch(e){if(e.code!==11000)throw e;}

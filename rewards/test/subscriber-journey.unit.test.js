@@ -17,3 +17,5 @@ test('reward requires exact percentage, one cycle, unused and active provider ev
 test('feature defaults off and refuses unverified manual discounts',()=>{assert.equal(journeyConfig({}).enabled,false);assert.equal(journeyConfig({LOOP_JOURNEY_ENABLED:'true'}).automation,false);});
 
 test('simultaneous skip wins over a potentially completing order',()=>{const at='2026-11-21';const p=journeyProgress({...seed,seedCount:4},[order(2,at)],[{key:'same-time',occurredAt:new Date(at)}]);assert.equal(p.finished,false);assert.equal(p.completed,1);});
+
+test('default rollout is the single authorized test subscription, all requires explicit selection',()=>{assert.deepEqual(journeyConfig({}).allowedIds,['42347174']);assert.equal(journeyConfig({}).all,false);assert.equal(journeyConfig({LOOP_JOURNEY_ALLOWED_SUBSCRIPTION_IDS:'all'}).all,true);});
